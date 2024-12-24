@@ -293,9 +293,11 @@ extern "C" __global__ void __closesthit__ch() {
 
     float3 interpolated_tangent   = safe_normalize(alpha * t0 + beta * t1 + gamma * t2);
     float3 interpolated_bitangent = safe_normalize(alpha * bt0 + beta * bt1 + gamma * bt2);
+    float3 texnormal = make_float3(0);
 
     if(hit_data->normal_map != 0){
         float4 texColor  = sampleTexture(hit_data->normal_map, uv);
+        texnormal = make_float3(texColor.x, texColor.y, texColor.z);
 
         // Convert from [0, 1] to [-1, 1]
         float3 tangent_space_normal  = make_float3(
@@ -307,11 +309,21 @@ extern "C" __global__ void __closesthit__ch() {
         //const float3 world_normal = normalize(optixTransformNormalFromObjectToWorldSpace(interpolated_normal));
 
         // Build TBN matrix
-        float3 T = normalize(interpolated_normal.x > 0.9f ? make_float3(0.0f, 1.0f, 0.0f) : cross(make_float3(1.0f, 0.0f, 0.0f), interpolated_normal));
-        float3 B = cross(interpolated_normal, T);
+        //loat3 T = normalize(interpolated_normal.x > 0.9f ? make_float3(0.0f, 1.0f, 0.0f) : cross(make_float3(1.0f, 0.0f, 0.0f), interpolated_normal));
+        //loat3 B = cross(interpolated_normal, T);
+
+        float3 T = normalize(interpolated_tangent);
+        float3 B = normalize(interpolated_bitangent);
+        float3 N = normalize(interpolated_normal);
+        // Transform the tangent space normal to world space
+        float3 perturbed_normal = normalize(
+                T * tangent_space_normal.x +
+                B * tangent_space_normal.y +
+                N * tangent_space_normal.z
+        );
 
         // Transform to world space
-        interpolated_normal = normalize(T * tangent_space_normal.x + B * tangent_space_normal.y + interpolated_normal * tangent_space_normal.z);
+        interpolated_normal = perturbed_normal;
     }
 
     // Sample textures

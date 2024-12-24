@@ -46,13 +46,15 @@ class Model:
         geometry = renderer.createVertexGeometry(vertices, indices, tex_coords, tangents, bitangents, vertex_normals, self.textures, self.normals, self.metallic_roughness, self.emission_texture)
         return geometry
 
-    def add(self, renderer, color=(1, 1, 1), texture=None):
+    def add(self, renderer, color=(1, 1, 1), texture=None, is_glass=False, emission=(0,0,0)):
         """
         Add the model to the renderer and return a ModelInstance that manages its transformations.
         """
         # Create geometry for the model
         geometry = self.create_geometry(renderer)
         geometry.setMaterialColor(*color)
+        geometry.setGlass(is_glass)
+        geometry.setEmission(*emission)
         if texture:
             geometry.setTexture(texture)
 

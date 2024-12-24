@@ -48,14 +48,22 @@ struct Geometry{
     OptixInstance instance;
     OptixBuildInput build_input;
     OptixAccelEmitDesc emitProperty = {};
-    HitGroupData material = {make_float3(1.0f, 1.0f, 1.0f), 1.4f, false};
+    HitGroupData material = {make_float3(1.0f, 1.0f, 1.0f), 1.4f, false, make_float3(0.0f, 0.0f, 0.0f)};
     //Geometry(torch::Tensor& vertices, torch::Tensor& indices): vertices(vertices), indices(indices){}
     Geometry(OptixRenderer& renderer, torch::Tensor& vertices, torch::Tensor* indices = nullptr):
             renderer(renderer), vertices(vertices), indices(indices)
     {}
 
+    void setEmission(float r, float g, float b){
+        material.emission = make_float3(r, g, b);
+    }
+
     void setMaterialColor(float r, float g, float b){
         material.color = make_float3(r, g, b);
+    }
+
+    void setGlass(bool is_glass){
+        material.is_glass = is_glass;
     }
 
     void setTexture(TextureObject& texture){
@@ -72,7 +80,7 @@ public:
     OptixRenderer(int width, int height);
     ~OptixRenderer();
 
-    void render(torch::Tensor& output_tensor, const std::vector<float>& camera_params);
+    void render(torch::Tensor& output_tensor, const std::vector<float>& camera_params, bool updated);
     //void set_geometry(const torch::Tensor& vertices, const torch::Tensor& indices);
 
     void createContext();

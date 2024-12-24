@@ -73,15 +73,22 @@ void OptixRenderer::createContext() {
     this->context = context;
 }
 void OptixRenderer::createModule() {
+    OptixPayloadType payloadType = {};
+    // radiance prd
+    payloadType.numPayloadValues = sizeof( radiancePayloadSemantics ) / sizeof( radiancePayloadSemantics[0] );
+    payloadType.payloadSemantics = radiancePayloadSemantics;
     OptixModuleCompileOptions module_compile_options = {};
+
 #if !defined(NDEBUG)
     module_compile_options.optLevel = OPTIX_COMPILE_OPTIMIZATION_LEVEL_0;
     module_compile_options.debugLevel = OPTIX_COMPILE_DEBUG_LEVEL_FULL;
 #endif
+    module_compile_options.numPayloadTypes = 1;
+    module_compile_options.payloadTypes    = &payloadType;
 
     this->pipeline_compile_options.usesMotionBlur = false;
     this->pipeline_compile_options.traversableGraphFlags = OPTIX_TRAVERSABLE_GRAPH_FLAG_ALLOW_SINGLE_LEVEL_INSTANCING;
-    this->pipeline_compile_options.numPayloadValues = 4;
+    this->pipeline_compile_options.numPayloadValues = 0;
     this->pipeline_compile_options.numAttributeValues = 3;
     this->pipeline_compile_options.exceptionFlags = OPTIX_EXCEPTION_FLAG_NONE;
     this->pipeline_compile_options.pipelineLaunchParamsVariableName = "params";
@@ -127,7 +134,7 @@ void OptixRenderer::createProgramGroups() {
         OptixProgramGroupDesc miss_prog_group_desc = {};
         miss_prog_group_desc.kind = OPTIX_PROGRAM_GROUP_KIND_MISS;
         miss_prog_group_desc.miss.module = ptx_module;
-        miss_prog_group_desc.miss.entryFunctionName = "__miss__ms";
+        miss_prog_group_desc.miss.entryFunctionName = "__miss__radiance";//"__miss__ms";
         OPTIX_CHECK_LOG(optixProgramGroupCreate(
                 context, &miss_prog_group_desc,
                 1,// num program groups
@@ -155,7 +162,7 @@ void OptixRenderer::createProgramGroups() {
         OptixProgramGroupDesc hit_prog_group_desc = {};
         hit_prog_group_desc.kind = OPTIX_PROGRAM_GROUP_KIND_HITGROUP;
         hit_prog_group_desc.hitgroup.moduleCH = ptx_module;
-        hit_prog_group_desc.hitgroup.entryFunctionNameCH = "__closesthit__ch";
+        hit_prog_group_desc.hitgroup.entryFunctionNameCH = "__closesthit__radiance";
         hit_prog_group_desc.hitgroup.moduleAH = ptx_module;
         hit_prog_group_desc.hitgroup.entryFunctionNameAH = "__anyhit__ah";
         OPTIX_CHECK_LOG(optixProgramGroupCreate(
@@ -279,7 +286,7 @@ void OptixRenderer::initLaunchParams() {
             params.width * params.height * sizeof( float4 )));
     params.frame_buffer = nullptr;// Will be set when output buffer is mapped
     params.subframe_index = 0u;
-    params.samples_per_launch = 1u;
+    params.samples_per_launch = 8u;
 
     CUDA_CHECK(cudaStreamCreate(&stream));
     CUDA_CHECK(cudaMalloc(reinterpret_cast<void **>(&d_params), sizeof(Params)));
@@ -1038,11 +1045,12 @@ void OptixRenderer::updateMeshAccel() {
 int num_frames = 16;
 float animation_time = 1.f;
 int i = 0;
-void OptixRenderer::render(torch::Tensor &output_tensor, const std::vector<float> &camera_params) {
+void OptixRenderer::render(torch::Tensor &output_tensor, const std::vector<float> &camera_params, bool updated) {
     updateSBT();
     if (camera_params.size() != 9) {
         throw std::runtime_error("camera_params must have 9 elements: eye(3), lookat(3), up(3)");
     }
+    params.subframe_index = updated?0:params.subframe_index+1;
 
     float3 eye = make_float3(camera_params[0], camera_params[1], camera_params[2]);
     float3 lookat = make_float3(camera_params[3], camera_params[4], camera_params[5]);
@@ -1077,7 +1085,9 @@ void OptixRenderer::render(torch::Tensor &output_tensor, const std::vector<float
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     py::class_<Geometry>(m, "Geometry")
             .def("setMaterialColor", &Geometry::setMaterialColor)
-            .def("setTexture", &Geometry::setTexture);
+            .def("setTexture", &Geometry::setTexture)
+            .def("setGlass", &Geometry::setGlass)
+            .def("setEmission", &Geometry::setEmission);
     py::class_<TextureObject>(m, "TextureObject")
             .def(py::init<torch::Tensor&>());
 

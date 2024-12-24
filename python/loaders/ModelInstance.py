@@ -1,6 +1,42 @@
 import torch
 import math
 
+
+def apply_rotation(matrix, rot_x, rot_y, rot_z):
+    """
+    Apply the rotation to the given matrix using Euler angles.
+    """
+    cos_x, sin_x = math.cos(rot_x), math.sin(rot_x)
+    cos_y, sin_y = math.cos(rot_y), math.sin(rot_y)
+    cos_z, sin_z = math.cos(rot_z), math.sin(rot_z)
+
+    # Rotation matrices for X, Y, and Z axes
+    rot_x_matrix = torch.tensor([
+        [1, 0, 0],
+        [0, cos_x, -sin_x],
+        [0, sin_x, cos_x]
+    ]).cuda()
+
+    rot_y_matrix = torch.tensor([
+        [cos_y, 0, sin_y],
+        [0, 1, 0],
+        [-sin_y, 0, cos_y]
+    ]).cuda()
+
+    rot_z_matrix = torch.tensor([
+        [cos_z, -sin_z, 0],
+        [sin_z, cos_z, 0],
+        [0, 0, 1]
+    ]).cuda()
+
+    # Combine rotations
+    rotation_matrix = torch.matmul(rot_z_matrix, torch.matmul(rot_y_matrix, rot_x_matrix))
+
+    # Apply rotation to the transformation matrix
+    matrix[:3, :3] = torch.matmul(matrix[:3, :3], rotation_matrix)
+    return matrix
+
+
 class ModelInstance:
     def __init__(self, model, geometry_id, renderer):
         """
@@ -14,6 +50,7 @@ class ModelInstance:
 
     def reset_transform_matrix(self):
         self.transform_matrix = None
+
     def set_transform(self, translation=None, rotation=None, scale=None):
         """
         Set a new transformation for the model instance (translation, rotation, scale).
@@ -31,7 +68,7 @@ class ModelInstance:
 
         if rotation:
             rot_x, rot_y, rot_z = rotation
-            transform_matrix = self.apply_rotation(transform_matrix, rot_x, rot_y, rot_z)
+            transform_matrix = apply_rotation(transform_matrix, rot_x, rot_y, rot_z)
 
         if scale:
             transform_matrix[:3, :3] *= torch.tensor(scale, dtype=torch.float32).cuda()
@@ -54,7 +91,7 @@ class ModelInstance:
 
         if rotation:
             rot_x, rot_y, rot_z = rotation
-            transform_matrix = self.apply_rotation(transform_matrix, rot_x, rot_y, rot_z)
+            transform_matrix = apply_rotation(transform_matrix, rot_x, rot_y, rot_z)
 
         if scale:
             transform_matrix[:3, :3] *= torch.tensor(scale, dtype=torch.float32).cuda()
@@ -65,41 +102,9 @@ class ModelInstance:
         # Apply the updated transformation directly to the GPU transform matrix for this geometry instance
         self.renderer.getTransformForInstance(self.geometry_id - 1)[:] = self.transform_matrix
 
-    def apply_rotation(self, matrix, rot_x, rot_y, rot_z):
-        """
-        Apply the rotation to the given matrix using Euler angles.
-        """
-        cos_x, sin_x = math.cos(rot_x), math.sin(rot_x)
-        cos_y, sin_y = math.cos(rot_y), math.sin(rot_y)
-        cos_z, sin_z = math.cos(rot_z), math.sin(rot_z)
-
-        # Rotation matrices for X, Y, and Z axes
-        rot_x_matrix = torch.tensor([
-            [1, 0, 0],
-            [0, cos_x, -sin_x],
-            [0, sin_x, cos_x]
-        ]).cuda()
-
-        rot_y_matrix = torch.tensor([
-            [cos_y, 0, sin_y],
-            [0, 1, 0],
-            [-sin_y, 0, cos_y]
-        ]).cuda()
-
-        rot_z_matrix = torch.tensor([
-            [cos_z, -sin_z, 0],
-            [sin_z, cos_z, 0],
-            [0, 0, 1]
-        ]).cuda()
-
-        # Combine rotations
-        rotation_matrix = torch.matmul(rot_z_matrix, torch.matmul(rot_y_matrix, rot_x_matrix))
-
-        # Apply rotation to the transformation matrix
-        matrix[:3, :3] = torch.matmul(matrix[:3, :3], rotation_matrix)
-        return matrix
-
     def set_transform_matrix(self, matrix):
+        if self.transform_matrix is None:
+            self.transform_matrix = self.renderer.getTransformForInstance(self.geometry_id - 1)
         self.transform_matrix[:, :4] = matrix[:3, :4]
 
     def get_transformation_matrix_val(self):

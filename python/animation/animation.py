@@ -8,8 +8,7 @@ import copy
 
 class Animator:
     def __init__(self, instances: list, transformation, duration):
-        self.transform_matrix = None
-        self.instances = [(i, torch.eye(4, dtype=torch.float32).cuda()) for i in instances]
+        self.instances = instances#[(i, torch.eye(4, dtype=torch.float32).cuda()) for i in instances]
         self.transformation = transformation
         self.duration = duration
         self.elapsed = 0
@@ -24,11 +23,29 @@ class Animator:
 
         for i, mat in self.instances:
             #print(i, mat)
-            i.set_transform_matrix(self.transformation(mat, progress))
-            torch.eye(4, out=mat)
+            i.set_transform_matrix(self.transformation(mat.detach().clone(), progress))
+            #torch.eye(4, out=mat)
 
         if self.elapsed >= self.duration:
             self.is_complete = True
+
+    def update_mat(self, dt):
+        matrices = []
+        if self.is_complete:
+            return
+        self.elapsed += dt
+        progress = min(self.elapsed / self.duration, 1.0)
+
+        for i, mat in self.instances:
+            #print(i, mat)
+            matrices.append(self.transformation(mat.detach().clone(), progress))
+            i.set_transform_matrix(matrices[-1])
+            #torch.eye(4, out=mat)
+
+        if self.elapsed >= self.duration:
+            self.is_complete = True
+        return matrices
+
 def lerp(start, end, t):
     return start + (end - start) * t
 class Transformation:
@@ -57,10 +74,22 @@ class Translate(Transformation):
 
     def call(self, mat, progress):
         translation = lerp(self.begin, self.end, progress)
-        mat[:3, 3] = torch.tensor(translation, dtype=torch.float32).cuda()
+        translation_mat = torch.eye(4, dtype=torch.float32).cuda()
+        translation_mat[:3, 3] = torch.tensor(translation, dtype=torch.float32).cuda()
+        #print("translate", progress, mat, self.begin, self.end)
+        return torch.matmul(mat, translation_mat)
+
+class Scale(Transformation):
+    def __init__(self, begin, end):
+        super().__init__()
+        self.begin = np.array(begin)
+        self.end = np.array(end)
+
+    def call(self, mat, progress):
+        translation = lerp(self.begin, self.end, progress)
+        mat[:3, :3] = torch.matmul(mat[:3, :3], torch.diag(torch.tensor(translation, dtype=torch.float32)).cuda())
         #print("translate", progress, mat, self.begin, self.end)
         return mat
-
 class Rotate(Transformation):
     def __init__(self, begin, end):
         super().__init__()
