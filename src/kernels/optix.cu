@@ -295,6 +295,7 @@ extern "C" __global__ void __raygen__rg()
         prd.attenuation  = make_float3(1.f);
         prd.seed         = seed;
         prd.depth        = 0;
+        prd.inside       = 0;
 
         for( ;; )
         {
