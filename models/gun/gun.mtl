@@ -1,0 +1,18 @@
+# Blender 4.3.2 MTL File: 'famas-f1-atb-skin.blend'
+# www.blender.org
+
+newmtl famas-f1-atb-skin
+Ks 0.200000 0.200000 0.200000
+Ke 0.000000 0.000000 0.000000
+Ni 1.500000
+d 1.000000
+illum 2
+Ps 0.000000
+Pc 0.000000
+Pcr 0.030000
+aniso 0.000000
+anisor 0.000000
+map_Kd C:/Users/Artyom/AppData/Local/Temp/Downloads/famas-f1-security-skin/source/model/model/textures/famas_f1_atb_skin_albedo.jpg
+map_Pm C:/Users/Artyom/AppData/Local/Temp/Downloads/famas-f1-security-skin/source/model/model/textures/famas_f1_atb_skin_metallic.jpg
+map_Pr C:/Users/Artyom/AppData/Local/Temp/Downloads/famas-f1-security-skin/source/model/model/textures/famas_f1_atb_skin_roughness.jpg
+map_Bump -bm 1.000000 C:/Users/Artyom/AppData/Local/Temp/Downloads/famas-f1-security-skin/source/model/model/textures/famas_f1_atb_skin_normal.png
