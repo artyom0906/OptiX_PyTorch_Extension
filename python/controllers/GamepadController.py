@@ -40,8 +40,8 @@ class GamepadController(InputController):
             # Read raw axis values
             raw_move_x = -joystick.get_axis(0)  # Left stick horizontal
             raw_move_y = joystick.get_axis(1)  # Left stick vertical
-            raw_move_z = joystick.get_axis(3)  # Right stick vertical (optional)
-            raw_rotate = -joystick.get_axis(2)  # Right stick horizontal
+            raw_move_z = joystick.get_axis(4)  # Right stick vertical (optional)
+            raw_rotate = -joystick.get_axis(3)  # Right stick horizontal
             #raw_pitch = -joystick.get_axis(5)  # Adjust based on controller layout
 
             #print("ms", self.movement_speed)
@@ -51,7 +51,7 @@ class GamepadController(InputController):
             self.move_z = self.apply_dead_zone(raw_move_z) * self.movement_speed
             self.rotate = self.apply_dead_zone(raw_rotate) * self.rotation_speed
             #self.pitch = self.apply_dead_zone(raw_pitch) * self.rotation_speed
-            #print(self.move_x, self.move_y, self.move_z)
+            print(raw_move_z)
 
     def get_movement(self):
         return self.move_x, self.move_y, self.move_z

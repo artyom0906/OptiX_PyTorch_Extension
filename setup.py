@@ -5,27 +5,28 @@ from torch.utils.cpp_extension import BuildExtension, CUDAExtension
 import os
 import subprocess
 
-optix_include = 'C:/ProgramData/NVIDIA Corporation/OptiX SDK 8.1.0/include'  # Your OptiX include path
+optix_include = '/home/artem/OptiX_PyTorch_Extension/NVIDIA-OptiX-SDK-9.0.0-linux64-x86_64/include'  # Your OptiX include path
 #optix_include = '/mnt/c/ProgramData/NVIDIA Corporation/OptiX SDK 8.1.0/include'  # Your OptiX include path
 #, 'C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.6'
-cuda_path = os.environ.get('CUDA_PATH')
+cuda_path = "/opt/cuda"#os.environ.get('CUDA_PATH')
 cuda_include = os.path.join(cuda_path, 'include')
 cuda_lib64 = os.path.join(cuda_path, 'lib', 'x64')
 
 extra_compile_args = {
-    'cxx': ['/O2', '/MD', '/D_CRT_SECURE_NO_WARNINGS'],
+    'cxx': ['-O2','-std=c++17','-D_GLIBCXX_USE_CXX11_ABI=1','-fvisibility=hidden'],
     'nvcc': [
+        '-D_GLIBCXX_USE_CXX11_ABI=1',
         '-O3',
         '--use_fast_math',
         '-arch=sm_86',  # Modify according to your GPU
         '-I{}'.format(optix_include),
         '-I{}'.format(cuda_include),
-        #'-std=c++14',
+        '-std=c++17',
     ]
 }
 
 # Get the correct nvcc path
-nvcc_path = os.path.join(cuda_path, 'bin', 'nvcc.exe')
+nvcc_path = os.path.join(cuda_path, 'bin', 'nvcc')
 
 # Verify nvcc version
 nvcc_version_output = subprocess.check_output([nvcc_path, '--version']).decode()
@@ -34,7 +35,7 @@ print("nvcc version:", nvcc_version_output)
 # Pass the nvcc executable path to the build extension
 class CustomBuildExtension(BuildExtension):
     def build_extensions(self):
-        self.compiler.set_executable('compiler_so', nvcc_path)
+        #self.compiler.set_executable('compiler_so', nvcc_path)
         super().build_extensions()
 
         # Generate compile_commands.json using Ninja
@@ -59,7 +60,7 @@ setup(
             sources=['src/OptixRenderer.cpp', 'src/vertices.cu', 'src/TextureObject.cpp'],
             include_dirs=[optix_include, cuda_include],
             library_dirs=[cuda_lib64],  # Only CUDA libraries
-            libraries=['cudart', 'Advapi32'],
+            libraries=['cudart'],
             extra_compile_args=extra_compile_args,
         )
     ],

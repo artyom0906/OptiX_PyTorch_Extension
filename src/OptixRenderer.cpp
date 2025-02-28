@@ -564,7 +564,10 @@ Geometry OptixRenderer::buidSphereGeometry() {
             torch::dtype(torch::kFloat32).device(device));
     d_temp_vertices = reinterpret_cast<CUdeviceptr>(vertices.data_ptr());
     launchGenerateAnimatedVertices(AnimationMode_None, d_temp_vertices);
-    Geometry geometry = Geometry(*this, create_vertices_tensor(cube_vertices));
+    
+    // Create a persistent tensor to prevent the rvalue issue
+    torch::Tensor cube_verts = create_vertices_tensor(cube_vertices);
+    Geometry geometry = Geometry(*this, cube_verts);
     // Build an AS over the triangles.
     // We use un-indexed triangles so we can explode the sphere per triangle.
     geometry.build_input = {};
@@ -1006,26 +1009,26 @@ void OptixRenderer::updateMeshAccel() {
     //            0                                   // num emitted properties
     //            ) );
 */
-    if (g_instances.size() > 1) {
-        float t = sinf(time * 4.f);
-        float t1 = cosf(time * 4.f);
-        for (int i = 0; i < 0; i++) {
-            float transform[12] = {
-                    // Row 0
-                    1, 0, 0, 0,// R₀₀, R₀₁, R₀₂, T₀
-                    // Row 1
-                    0, 1, 0, 0,// R₁₀, R₁₁, R₁₂, T₁
-                    // Row 2
-                    0, 0, 1, 0// R₂₀, R₂₁, R₂₂, T₂
-            };
-            setRotation(time * 4.f, time * 4.f, 0.f, transform);
-            // Optionally set translation components
-            transform[3] = (i - 5) * 1.5;// T₀ (translation along X-axis)
-            transform[7] = t1;           // T₁ (translation along Y-axis)
-            transform[11] = 0.0f;        // T₂ (translation along Z-axis)
-            CUDA_CHECK(cudaMemcpy(((OptixInstance *) d_instances)[i].transform, transform, sizeof(float) * 12, cudaMemcpyHostToDevice));
-        }
-    }
+    //if (g_instances.size() > 1) {
+    //    float t = sinf(time * 4.f);
+    //    float t1 = cosf(time * 4.f);
+    //    for (int i = 0; i < 0; i++) {
+    //        float transform[12] = {
+    //                // Row 0
+    //                1, 0, 0, 0,// R₀₀, R₀₁, R₀₂, T₀
+    //                // Row 1
+    //                0, 1, 0, 0,// R₁₀, R₁₁, R₁₂, T₁
+    //                // Row 2
+    //                0, 0, 1, 0// R₂₀, R₂₁, R₂₂, T₂
+    //        };
+    //        setRotation(time * 4.f, time * 4.f, 0.f, transform);
+    //        // Optionally set translation components
+    //        transform[3] = (i - 5) * 1.5;// T₀ (translation along X-axis)
+    //        transform[7] = t1;           // T₁ (translation along Y-axis)
+    //        transform[11] = 0.0f;        // T₂ (translation along Z-axis)
+    //        CUDA_CHECK(cudaMemcpy(((OptixInstance *) d_instances)[i].transform, transform, sizeof(float) * 12, cudaMemcpyHostToDevice));
+    //    }
+    //}
 
     // Update the IAS
     // We refit the IAS as the relative positions of the spheres don't change much so AS quality after update is fine.
@@ -1081,7 +1084,6 @@ void OptixRenderer::render(torch::Tensor &output_tensor, const std::vector<float
     i++;
 }
 
-
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     py::class_<Geometry>(m, "Geometry")
             .def("setMaterialColor", &Geometry::setMaterialColor)
@@ -1104,18 +1106,61 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
                                             py::object textureObject,
                                             py::object normals,
                                             py::object metallic_roughness,
-                                            py::object emission_texture){
-                     torch::Tensor* texCoordsPointer =texCoords.is_none() ? nullptr : &texCoords.cast<torch::Tensor>();
-                     torch::Tensor* indicesPointer = indices.is_none() ? nullptr : &indices.cast<torch::Tensor>();
-                     torch::Tensor* tangentsPointer = tangents.is_none() ? nullptr : &tangents.cast<torch::Tensor>();
-                     torch::Tensor* bitangentsPointer = bitangents.is_none() ? nullptr : &bitangents.cast<torch::Tensor>();
-                     torch::Tensor* vertex_normalsPointer = vertex_normals.is_none() ? nullptr : &vertex_normals.cast<torch::Tensor>();
-                     TextureObject* normalsObjectPointer = normals.is_none() ? nullptr : &normals.cast<TextureObject>();
-                     TextureObject* textureObjectPointer = textureObject.is_none() ? nullptr : &textureObject.cast<TextureObject>();
-                     TextureObject* metallic_roughnessObjectPointer = metallic_roughness.is_none() ? nullptr : &metallic_roughness.cast<TextureObject>();
-                     TextureObject* emission_textureObjectPointer = emission_texture.is_none() ? nullptr : &emission_texture.cast<TextureObject>();
+                                            py::object emission_texture) {
+                     // Store tensors in optional to avoid taking address of temporaries
+                     std::optional<torch::Tensor> indices_opt, texCoords_opt, tangents_opt, bitangents_opt, vertex_normals_opt;
+                     std::optional<TextureObject> normals_opt, texture_opt, metallic_roughness_opt, emission_texture_opt;
+                     
+                     // Use pointers to the optionals' stored values
+                     torch::Tensor* indicesPointer = nullptr;
+                     torch::Tensor* texCoordsPointer = nullptr;
+                     torch::Tensor* tangentsPointer = nullptr;
+                     torch::Tensor* bitangentsPointer = nullptr;
+                     torch::Tensor* vertex_normalsPointer = nullptr;
+                     TextureObject* normalsObjectPointer = nullptr;
+                     TextureObject* textureObjectPointer = nullptr;
+                     TextureObject* metallic_roughnessObjectPointer = nullptr;
+                     TextureObject* emission_textureObjectPointer = nullptr;
+                     
+                     // Fill the optionals and update pointers when needed
+                     if (!indices.is_none()) {
+                         indices_opt = indices.cast<torch::Tensor>();
+                         indicesPointer = &indices_opt.value();
+                     }
+                     if (!texCoords.is_none()) {
+                         texCoords_opt = texCoords.cast<torch::Tensor>();
+                         texCoordsPointer = &texCoords_opt.value();
+                     }
+                     if (!tangents.is_none()) {
+                         tangents_opt = tangents.cast<torch::Tensor>();
+                         tangentsPointer = &tangents_opt.value();
+                     }
+                     if (!bitangents.is_none()) {
+                         bitangents_opt = bitangents.cast<torch::Tensor>();
+                         bitangentsPointer = &bitangents_opt.value();
+                     }
+                     if (!vertex_normals.is_none()) {
+                         vertex_normals_opt = vertex_normals.cast<torch::Tensor>();
+                         vertex_normalsPointer = &vertex_normals_opt.value();
+                     }
+                     if (!normals.is_none()) {
+                         normals_opt = normals.cast<TextureObject>();
+                         normalsObjectPointer = &normals_opt.value();
+                     }
+                     if (!textureObject.is_none()) {
+                         texture_opt = textureObject.cast<TextureObject>();
+                         textureObjectPointer = &texture_opt.value();
+                     }
+                     if (!metallic_roughness.is_none()) {
+                         metallic_roughness_opt = metallic_roughness.cast<TextureObject>();
+                         metallic_roughnessObjectPointer = &metallic_roughness_opt.value();
+                     }
+                     if (!emission_texture.is_none()) {
+                         emission_texture_opt = emission_texture.cast<TextureObject>();
+                         emission_textureObjectPointer = &emission_texture_opt.value();
+                     }
 
-                    std::cout<<"geometry ptrs: "<<texCoordsPointer<<" "<<indicesPointer<<" "<<textureObjectPointer<<std::endl;
+                     std::cout<<"geometry ptrs: "<<texCoordsPointer<<" "<<indicesPointer<<" "<<textureObjectPointer<<std::endl;
                      // Call the actual createVertexGeometry method with the appropriate arguments
                      return self.createVertexGeometry(vertices, indicesPointer, texCoordsPointer, tangentsPointer, bitangentsPointer,
                                                      vertex_normalsPointer, textureObjectPointer, normalsObjectPointer,
@@ -1128,9 +1173,4 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
             .def("addGeometryInstance", &OptixRenderer::addGeometryInstance)
             .def("buidIAS", &OptixRenderer::buidIAS)
             .def("getTransformForInstance", &OptixRenderer::getTransformForInstance);
-
-
-    //        .def(py::init<torch::Tensor, torch::Tensor>())
-    //        .def("render", &OptixRenderer::render)
-    //        .def("set_geometry", &OptixRenderer::set_geometry);
 }
