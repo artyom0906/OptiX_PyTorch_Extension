@@ -28,6 +28,8 @@
  * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+#ifndef DYNAMIC_GEOMETRY_H
+#define DYNAMIC_GEOMETRY_H
 const unsigned int radiancePayloadSemantics[19] =
         {
                 // RadiancePRD::attenuation
@@ -122,3 +124,4 @@ struct HitGroupData
     CUdeviceptr tangents;
     CUdeviceptr bitangents;
 };
+#endif //DYNAMIC_GEOMETRY_H

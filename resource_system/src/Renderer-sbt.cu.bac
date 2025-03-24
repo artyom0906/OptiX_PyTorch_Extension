@@ -1,0 +1,409 @@
+#include "../include/Renderer.h"
+#include "../include/ResourceManager.cuh"
+#include "../include/DeviceContext.cuh"
+#include "../include/LaunchParams.h"
+
+#include <optix.h>
+#include <vector_types.h>
+#include <vector_functions.h>
+#include <filesystem>
+#include <fstream>
+#include <cuda_runtime_api.h>
+
+// We'll use the standard OptiX parameter passing approach
+// where parameters are passed to optixLaunch and accessed via the 
+// pipelineLaunchParamsVariableName "params" in the shader
+
+// All stub implementations have been removed
+// Implementing full OptiX integration
+
+namespace optix_renderer {
+
+// Constructor implementation
+Renderer::Renderer(ResourceManager* resourceManager, int deviceId) 
+    : m_resourceManager(resourceManager),
+      m_deviceContext(resourceManager->getDeviceContext(deviceId)),
+      m_d_output(0),
+      m_d_instances(0),
+      m_d_iasOutputBuffer(0),
+      m_numInstances(0),
+      m_initialized(false),
+      m_sceneChanged(true),
+      m_settingsChanged(true)
+{
+    // Initialize default camera parameters
+    m_camera.position = make_float3(0.0f, 0.0f, -5.0f);
+    m_camera.lookAt = make_float3(0.0f, 0.0f, 0.0f);
+    m_camera.up = make_float3(0.0f, 1.0f, 0.0f);
+    m_camera.fov = 60.0f;
+    m_camera.aspectRatio = 1.0f;
+    m_camera.aperture = 0.0f;
+    m_camera.focusDistance = 1.0f;
+    
+    // Initialize default renderer settings
+    m_settings.maxBounces = 8;
+    m_settings.samplesPerPixel = 1;
+    m_settings.denoiseResult = false;
+}
+
+// Helper function to create a float3
+inline float3 make_float3(float x, float y, float z) {
+    float3 result;
+    result.x = x;
+    result.y = y;
+    result.z = z;
+    return result;
+}
+
+// Helper functions for vector operations
+inline float3 operator-(const float3& a, const float3& b) {
+    return make_float3(a.x - b.x, a.y - b.y, a.z - b.z);
+}
+
+inline float3 operator*(float a, const float3& b) {
+    return make_float3(a * b.x, a * b.y, a * b.z);
+}
+
+inline float3 normalize(const float3& v) {
+    float inv_len = 1.0f / sqrtf(v.x * v.x + v.y * v.y + v.z * v.z);
+    return make_float3(v.x * inv_len, v.y * inv_len, v.z * inv_len);
+}
+
+inline float3 cross(const float3& a, const float3& b) {
+    return make_float3(a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x);
+}
+
+// Initialization
+bool Renderer::initialize(){
+    if (!m_resourceManager || !m_deviceContext || !m_deviceContext->isInitialized()) {
+        std::cerr << "ERROR: Renderer::initialize()\n";
+        throw std::runtime_error("No device context or resource manager");
+    }
+    // Initialize internal state
+    m_initialized = false;
+    m_sceneChanged = true;
+    m_settingsChanged = true;
+    m_d_output = 0;  // Initialize output buffer pointer
+
+    try {
+        // Load and compile modules
+        if (!loadAndCompileModules()) {
+            std::cerr << "ERROR: Failed to load and compile modules\n";
+            return false;
+        }
+
+        // Create OptiX pipeline
+        if (!createPipeline()) {
+            std::cerr << "ERROR: Failed to create OptiX pipeline\n";
+            return false;
+        }
+
+        // Setup shader binding table
+        if (!setupShaderBindingTable()) {
+            std::cerr << "ERROR: Failed to setup shader binding table\n";
+            return false;
+        }
+
+        // Build the acceleration structure for the scene
+        if (!buildAccelerationStructures()) {
+            std::cerr << "ERROR: Failed to build acceleration structures\n";
+            return false;
+        }
+
+        // Everything initialized successfully
+        m_initialized = true;
+        return true;
+    }
+    catch (const std::exception& e) {
+        std::cerr << "ERROR: Renderer initialization failed: " << e.what() << std::endl;
+        return false;
+    }
+}
+
+bool Renderer::setupShaderBindingTable() {
+    // First ensure we're using the correct CUDA context
+    if (!m_deviceContext->setDevice()) {
+        std::cerr << "Failed to set device context for shader binding table setup" << std::endl;
+        return false;
+    }
+
+    try {
+        // Create shader binding table records
+        CUdeviceptr raygen_record;
+        CUdeviceptr miss_record;
+        CUdeviceptr hitgroup_records;
+        
+        // Calculate record sizes
+        size_t raygen_record_size = sizeof(RayGenSbtRecord);
+        size_t miss_record_size = sizeof(MissSbtRecord);
+        size_t hitgroup_record_size = sizeof(HitGroupSbtRecord);
+        
+        // Align record sizes to satisfy OptiX requirements (multiples of OPTIX_SBT_RECORD_ALIGNMENT)
+        size_t raygen_record_aligned_size = OPTIX_SBT_RECORD_ALIGNMENT * 
+            ((raygen_record_size + OPTIX_SBT_RECORD_ALIGNMENT - 1) / OPTIX_SBT_RECORD_ALIGNMENT);
+        size_t miss_record_aligned_size = OPTIX_SBT_RECORD_ALIGNMENT * 
+            ((miss_record_size + OPTIX_SBT_RECORD_ALIGNMENT - 1) / OPTIX_SBT_RECORD_ALIGNMENT);
+        size_t hitgroup_record_aligned_size = OPTIX_SBT_RECORD_ALIGNMENT * 
+            ((hitgroup_record_size + OPTIX_SBT_RECORD_ALIGNMENT - 1) / OPTIX_SBT_RECORD_ALIGNMENT);
+        
+        // We will account for ALL instances in the scene, not just the visible ones
+        // This ensures consistent SBT entries even for instances currently outside the view
+        unsigned int num_hit_groups = static_cast<unsigned int>(m_instances.size());
+        
+        // Always allocate at least one hit group record even if there are no instances
+        if (num_hit_groups == 0) {
+            num_hit_groups = 1;
+        }
+        
+        std::cout << "Setting up SBT with " << num_hit_groups << " hit group records" << std::endl;
+        
+        // Clean up existing SBT records if they exist
+        if (m_sbt.raygenRecord) {
+            CUDA_DRIVER_CHECK(cuMemFreeAsync(m_sbt.raygenRecord, m_deviceContext->getStream()));
+        }
+        
+        if (m_sbt.missRecordBase) {
+            CUDA_DRIVER_CHECK(cuMemFreeAsync(m_sbt.missRecordBase, m_deviceContext->getStream()));
+        }
+        
+        if (m_sbt.hitgroupRecordBase) {
+            CUDA_DRIVER_CHECK(cuMemFreeAsync(m_sbt.hitgroupRecordBase, m_deviceContext->getStream()));
+        }
+        
+        // Allocate device memory for SBT records using driver API
+        CUDA_DRIVER_CHECK(cuMemAllocAsync(&raygen_record, raygen_record_aligned_size, m_deviceContext->getStream()));
+        CUDA_DRIVER_CHECK(cuMemAllocAsync(&miss_record, miss_record_aligned_size, m_deviceContext->getStream()));
+        
+        // Allocate new hit group records
+        CUDA_DRIVER_CHECK(cuMemAllocAsync(
+            &hitgroup_records, 
+            hitgroup_record_aligned_size * num_hit_groups, 
+            m_deviceContext->getStream()
+        ));
+        
+        // Verify alignment of all allocations
+        if ((raygen_record % OPTIX_SBT_RECORD_ALIGNMENT) != 0 ||
+            (miss_record % OPTIX_SBT_RECORD_ALIGNMENT) != 0 ||
+            (hitgroup_records % OPTIX_SBT_RECORD_ALIGNMENT) != 0) {
+            std::cerr << "ERROR: One or more SBT records are not properly aligned" << std::endl;
+            
+            // Clean up misaligned allocations
+            CUDA_DRIVER_CHECK(cuMemFreeAsync(raygen_record, m_deviceContext->getStream()));
+            CUDA_DRIVER_CHECK(cuMemFreeAsync(miss_record, m_deviceContext->getStream()));
+            CUDA_DRIVER_CHECK(cuMemFreeAsync(hitgroup_records, m_deviceContext->getStream()));
+            
+            return false;
+        }
+        
+        // Create and fill records on host
+        RayGenSbtRecord raygen_data;
+        MissSbtRecord miss_data;
+        
+        // Pack headers for raygen and miss records
+        OPTIX_CHECK(optixSbtRecordPackHeader(m_raygenPG, &raygen_data.header));
+        OPTIX_CHECK(optixSbtRecordPackHeader(m_missPG, &miss_data.header));
+        
+        // Copy raygen and miss records to device
+        CUDA_DRIVER_CHECK(cuMemcpyHtoDAsync(
+            raygen_record, 
+            &raygen_data, 
+            raygen_record_size, 
+            m_deviceContext->getStream()
+        ));
+        
+        CUDA_DRIVER_CHECK(cuMemcpyHtoDAsync(
+            miss_record, 
+            &miss_data, 
+            miss_record_size, 
+            m_deviceContext->getStream()
+        ));
+        
+        // Create hit group records
+        std::vector<HitGroupSbtRecord> hit_group_records(num_hit_groups);
+        
+        // Initialize hit group records with default values
+        for (unsigned int i = 0; i < num_hit_groups; i++) {
+            // Pack hit group header
+            OPTIX_CHECK(optixSbtRecordPackHeader(m_hitgroupPG, &hit_group_records[i].header));
+            
+            // Initialize with default values
+            hit_group_records[i].data.material.albedo = make_float3(0.8f, 0.8f, 0.8f); // Default white
+            hit_group_records[i].data.material.emission = make_float3(0.0f, 0.0f, 0.0f);
+            hit_group_records[i].data.material.metallic = 0.0f;
+            hit_group_records[i].data.material.roughness = 0.5f;
+            hit_group_records[i].data.material.transmission = 0.0f;
+            hit_group_records[i].data.material.ior = 1.5f;
+            hit_group_records[i].data.material.albedoTexture = -1; // No texture by default
+            hit_group_records[i].data.material.materialType = OPTIX_LAMBERTIAN;
+            hit_group_records[i].data.material.flags = 0;
+            
+            hit_group_records[i].data.vertices = 0;
+            hit_group_records[i].data.indices = 0;
+            hit_group_records[i].data.normals = 0;
+            hit_group_records[i].data.texcoords = 0;
+            hit_group_records[i].data.tangents = 0;
+            hit_group_records[i].data.bitangents = 0;
+            
+            hit_group_records[i].data.albedo_texture = 0;
+            hit_group_records[i].data.normal_texture = 0;
+            hit_group_records[i].data.metallic_roughness_texture = 0;
+            hit_group_records[i].data.emission_texture = 0;
+            hit_group_records[i].data.specular_texture = 0;
+            hit_group_records[i].data.specular_tint_texture = 0;
+            hit_group_records[i].data.sheen_texture = 0;
+            hit_group_records[i].data.clearcoat_texture = 0;
+            
+            hit_group_records[i].data.has_normals = false;
+            hit_group_records[i].data.has_texcoords = false;
+            hit_group_records[i].data.has_tangents = false;
+            hit_group_records[i].data.has_bitangents = false;
+            
+            hit_group_records[i].data.albedo = make_float3(0.8f, 0.8f, 0.8f);
+            hit_group_records[i].data.emission = make_float3(0.0f, 0.0f, 0.0f);
+        }
+        
+        // Update hit group records with instance-specific data
+        for (size_t i = 0; i < m_instances.size(); i++) {
+            auto instance = m_instances[i];
+            if (!instance) {
+                std::cerr << "Warning: Null instance at index " << i << std::endl;
+                continue;
+            }
+            
+            // Get handles
+            GeometryHandle geomId = instance->getGeometryHandle();
+            MaterialHandle matId = instance->getMaterialHandle();
+            
+            // Get a reference to the hit group record to update
+            HitGroupSbtRecord& record = hit_group_records[i];
+            
+            // Update geometry data
+            auto geomData = m_deviceContext->getGeometryData(geomId);
+            if (geomData) {
+                // Set geometry device pointers
+                record.data.vertices = geomData->d_vertices;
+                record.data.indices = geomData->d_indices;
+                record.data.texcoords = geomData->d_texCoords;
+                
+                // Set geometry flags
+                record.data.has_texcoords = (geomData->d_texCoords != 0);
+                
+                std::cout << "  Instance #" << i << ": Updated geometry data"
+                          << " (texcoords: " << (record.data.has_texcoords ? "yes" : "no") << ")" << std::endl;
+            }
+            
+            // Update material data
+            auto matResource = m_resourceManager->getMaterial(matId);
+            if (matResource) {
+                // Set material type
+                MaterialType materialType = matResource->getMaterialType();
+                
+                // Map material type to OptiX shader's material type
+                int optixMaterialType;
+                switch(materialType) {
+                    case MaterialType::LAMBERTIAN: optixMaterialType = OPTIX_LAMBERTIAN; break;
+                    case MaterialType::PBR: optixMaterialType = OPTIX_PBR; break;
+                    case MaterialType::GLASS: optixMaterialType = OPTIX_GLASS; break;
+                    case MaterialType::EMISSIVE: optixMaterialType = OPTIX_EMISSIVE; break;
+                    case MaterialType::MIRROR: optixMaterialType = OPTIX_MIRROR; break;
+                    default: optixMaterialType = OPTIX_LAMBERTIAN; break;
+                }
+                
+                record.data.material.materialType = optixMaterialType;
+                
+                // Look for albedo/base color with multiple possible names
+                const std::vector<std::string> albedoParamNames = {
+                    "albedo", "base_color", "diffuse_color", "color"
+                };
+                
+                for (const auto& paramName : albedoParamNames) {
+                    if (matResource->hasParameter(paramName)) {
+                        auto param = matResource->getParameter(paramName);
+                        if (param.getType() == ParameterType::FLOAT3) {
+                            float3 value = param.asFloat3();
+                            record.data.material.albedo = value;
+                            record.data.albedo = value; // Set both for compatibility
+                            break;
+                        }
+                    }
+                }
+                
+                // Handle emission
+                if (matResource->hasParameter("emission") || matResource->hasParameter("emission_color")) {
+                    const std::string paramName = matResource->hasParameter("emission") ? 
+                                                 "emission" : "emission_color";
+                    auto param = matResource->getParameter(paramName);
+                    if (param.getType() == ParameterType::FLOAT3) {
+                        float3 value = param.asFloat3();
+                        record.data.material.emission = value;
+                        record.data.emission = value; // Set both for compatibility
+                        
+                        if (value.x > 0.0f || value.y > 0.0f || value.z > 0.0f) {
+                            setMaterialFlag(record.data.material.flags, MATERIAL_IS_EMISSIVE, true);
+                        }
+                    }
+                }
+                
+                // Handle other material parameters
+                if (matResource->hasParameter("metallic")) {
+                    auto param = matResource->getParameter("metallic");
+                    if (param.getType() == ParameterType::FLOAT) {
+                        record.data.material.metallic = param.asFloat();
+                    }
+                }
+                
+                if (matResource->hasParameter("roughness")) {
+                    auto param = matResource->getParameter("roughness");
+                    if (param.getType() == ParameterType::FLOAT) {
+                        record.data.material.roughness = param.asFloat();
+                    }
+                }
+                
+                // Check for textures
+                if (matResource->hasTexture("albedoTexture") || matResource->hasTexture("albedo_texture")) {
+                    TextureHandle texHandle = matResource->hasTexture("albedoTexture") ? 
+                        matResource->getTexture("albedoTexture") : matResource->getTexture("albedo_texture");
+                    
+                    auto texData = m_deviceContext->getTextureData(texHandle);
+                    if (texData && texData->texture_object) {
+                        record.data.albedo_texture = texData->texture_object;
+                        record.data.material.albedoTexture = 0; // 0 indicates texture exists
+                        setMaterialFlag(record.data.material.flags, MATERIAL_HAS_ALBEDO_TEXTURE, true);
+                    }
+                }
+            }
+        }
+        
+        // Copy all hit group records to device
+        CUDA_DRIVER_CHECK(cuMemcpyHtoDAsync(
+            hitgroup_records,
+            hit_group_records.data(),
+            hit_group_records.size() * hitgroup_record_size,
+            m_deviceContext->getStream()
+        ));
+        
+        // Configure the shader binding table
+        m_sbt.raygenRecord = raygen_record;
+        m_sbt.missRecordBase = miss_record;
+        m_sbt.missRecordCount = 1;
+        m_sbt.missRecordStrideInBytes = sizeof(MissSbtRecord);
+        
+        m_sbt.hitgroupRecordBase = hitgroup_records;
+        m_sbt.hitgroupRecordCount = num_hit_groups;
+        m_sbt.hitgroupRecordStrideInBytes = sizeof(HitGroupSbtRecord);
+        
+        // Wait for all CUDA operations to complete
+        CUDA_DRIVER_CHECK(cuStreamSynchronize(m_deviceContext->getStream()));
+        
+        return true;
+    }
+    catch (const std::exception& e) {
+        std::cerr << "ERROR: Failed to setup shader binding table: " << e.what() << std::endl;
+        return false;
+    }
+}
+
+// Implement other required functions from Renderer.h
+// ...
+
+} // namespace optix_renderer

@@ -6,6 +6,7 @@
 #define OPTIX_PYTORCH_EXTENSION_OPTIXRENDERER_H
 #define NOMINMAX
 #define _USE_MATH_DEFINES
+#include "Geometry.h"
 #include <cmath>
 #include <optix.h>
 #include <optix_stubs.h>
@@ -25,6 +26,7 @@
 #include "vertices.h"
 #include "cube.h"
 #include "TextureObject.h"
+
 template <typename T>
 struct Record
 {
@@ -34,46 +36,7 @@ struct Record
 typedef Record<RayGenData>   RayGenRecord;
 typedef Record<MissData>     MissRecord;
 typedef Record<HitGroupData> HitGroupRecord;
-class OptixRenderer;
-//TODO: change to Geometry + GeometryInstance
-struct Geometry{
-    torch::Tensor& vertices;
-    torch::Tensor* indices = nullptr;
-    torch::Tensor* texCoords = nullptr;
-    OptixTraversableHandle optixTraversableHandle;
-    CUdeviceptr d_gas_output_buffer;
-    size_t      gas_output_buffer_size = 0;
-    OptixTraversableHandle gas_handle;
-    OptixRenderer& renderer;
-    OptixInstance instance;
-    OptixBuildInput build_input;
-    OptixAccelEmitDesc emitProperty = {};
-    HitGroupData material = {make_float3(1.0f, 1.0f, 1.0f), 1.4f, false, make_float3(0.0f, 0.0f, 0.0f)};
-    //Geometry(torch::Tensor& vertices, torch::Tensor& indices): vertices(vertices), indices(indices){}
-    Geometry(OptixRenderer& renderer, torch::Tensor& vertices, torch::Tensor* indices = nullptr):
-            renderer(renderer), vertices(vertices), indices(indices)
-    {}
 
-    void setEmission(float r, float g, float b){
-        material.emission = make_float3(r, g, b);
-    }
-
-    void setMaterialColor(float r, float g, float b){
-        material.color = make_float3(r, g, b);
-    }
-
-    void setGlass(bool is_glass){
-        material.is_glass = is_glass;
-    }
-
-    void setTexture(TextureObject& texture){
-        material.texture = texture.get();
-    }
-
-    Geometry copy();
-    Geometry compress();
-
-};
 
 class OptixRenderer {
 public:

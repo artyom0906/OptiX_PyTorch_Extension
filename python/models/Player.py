@@ -3,12 +3,13 @@ from python.models import Camera
 
 
 class Player:
-    def __init__(self, controller: InputController, camera: Camera):
+    def __init__(self, controller: InputController, cameras: [Camera]):
         self.controller = controller
-        self.camera = camera
+        self.cameras = cameras
 
     def update(self, dt):
         self.controller.update()
         movement = [i * dt for i in self.controller.get_movement()]
         rotation = [i * dt for i in self.controller.get_rotation()]
-        self.camera.update(movement, rotation)
+        for camera in self.cameras:
+            camera.update(movement, rotation)
