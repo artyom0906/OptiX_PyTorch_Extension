@@ -31,14 +31,11 @@ Renderer::Renderer(ResourceManager* resourceManager, int deviceId)
       m_initialized(false),
       m_sceneChanged(true),
       m_settingsChanged(true) {
-    // Initialize default camera parameters
+    // Initialize default camera parameters for direct ray generation
     m_camera.position      = make_float3(0.0f, 0.0f, -5.0f);
-    m_camera.lookAt        = make_float3(0.0f, 0.0f, 0.0f);
-    m_camera.up            = make_float3(0.0f, 1.0f, 0.0f);
-    m_camera.fov           = 60.0f;
-    m_camera.aspectRatio   = 1.0f;
-    m_camera.aperture      = 0.0f;
-    m_camera.focusDistance = 1.0f;
+    m_camera.u             = make_float3(1.0f, 0.0f, 0.0f);  // right vector
+    m_camera.v             = make_float3(0.0f, 1.0f, 0.0f);  // up vector
+    m_camera.w             = make_float3(0.0f, 0.0f, -1.0f); // forward vector
 
     // Initialize default renderer settings
     m_settings.maxBounces      = 8;
@@ -241,7 +238,7 @@ bool Renderer::setupShaderBindingTable() {
         // with appropriate geometry and material data
         HitGroupSbtRecord hit_group_sbt_records[m_instances.size()];
         if (m_instances.size() > 0) {
-            std::cout << "Updating SBT with instance data for " << m_instances.size() << " instances..." << std::endl;
+            //std::cout << "Updating SBT with instance data for " << m_instances.size() << " instances..." << std::endl;
             
             for (size_t i = 0; i < m_instances.size() && i < m_sbt.hitgroupRecordCount; i++) {
                 auto instance = m_instances[i];
@@ -262,8 +259,8 @@ bool Renderer::setupShaderBindingTable() {
                     // Update geometry flags
                     currentRecord->data.has_texcoords = (geomData->d_texCoords != 0);
                     
-                    std::cout << "  Instance #" << i << ": Updated geometry data"
-                              << " (texcoords: " << (currentRecord->data.has_texcoords ? "yes" : "no") << ")" << std::endl;
+                    //std::cout << "  Instance #" << i << ": Updated geometry data"
+                    //          << " (texcoords: " << (currentRecord->data.has_texcoords ? "yes" : "no") << ")" << std::endl;
                 }
                 
                 // Get material data - this is where we need to set textures
@@ -325,8 +322,8 @@ bool Renderer::setupShaderBindingTable() {
                                 float3 value = param.asFloat3();
                                 currentRecord->data.material.albedo = value;
                                 currentRecord->data.albedo = value; // Set both for compatibility
-                                std::cout << "  Instance #" << i << ": Found " << paramName << " value: "
-                                      << value.x << ", " << value.y << ", " << value.z << std::endl;
+                                //std::cout << "  Instance #" << i << ": Found " << paramName << " value: "
+                                //      << value.x << ", " << value.y << ", " << value.z << std::endl;
                                 break;
                             }
                         }
@@ -511,7 +508,7 @@ bool Renderer::setupShaderBindingTable() {
                     for (const auto& texName : albedoTextureNames) {
                         if (matResource->hasTexture(texName)) {
                             TextureHandle texHandle = matResource->getTexture(texName);
-                            std::cout << "  Instance #" << i << ": Found albedo texture '" << texName << "': " << texHandle << std::endl;
+                            //std::cout << "  Instance #" << i << ": Found albedo texture '" << texName << "': " << texHandle << std::endl;
                             
                             // Get the texture data from the device context
                             auto texData = m_deviceContext->getTextureData(texHandle);
@@ -523,10 +520,10 @@ bool Renderer::setupShaderBindingTable() {
                                 // Set material flag to indicate texture is available
                                 setMaterialFlag(currentRecord->data.material.flags, MATERIAL_HAS_ALBEDO_TEXTURE, true);
                                 
-                                std::cout << "  Instance #" << i << ": Set albedo texture: " << texData->texture_object << std::endl;
-                                std::cout << "    Material flags: " << currentRecord->data.material.flags 
-                                          << " (MATERIAL_HAS_ALBEDO_TEXTURE = " << MATERIAL_HAS_ALBEDO_TEXTURE << ")" << std::endl;
-                                std::cout << "    Material has texcoords: " << (currentRecord->data.has_texcoords ? "yes" : "no") << std::endl;
+                                //std::cout << "  Instance #" << i << ": Set albedo texture: " << texData->texture_object << std::endl;
+                                //std::cout << "    Material flags: " << currentRecord->data.material.flags
+                                //          << " (MATERIAL_HAS_ALBEDO_TEXTURE = " << MATERIAL_HAS_ALBEDO_TEXTURE << ")" << std::endl;
+                                //std::cout << "    Material has texcoords: " << (currentRecord->data.has_texcoords ? "yes" : "no") << std::endl;
                                 
                                 // Found a valid texture, stop checking other names
                                 break;
@@ -606,11 +603,11 @@ bool Renderer::setupShaderBindingTable() {
                         }
                     }
                     
-                    std::cout << "  Instance #" << i << ": Updated material (type: " 
-                              << optixMaterialType << ", albedo: "
-                              << currentRecord->data.albedo.x << ","
-                              << currentRecord->data.albedo.y << ","
-                              << currentRecord->data.albedo.z << ")" << std::endl;
+                    //std::cout << "  Instance #" << i << ": Updated material (type: "
+                    //          << optixMaterialType << ", albedo: "
+                    //          << currentRecord->data.albedo.x << ","
+                    //          << currentRecord->data.albedo.y << ","
+                    //          << currentRecord->data.albedo.z << ")" << std::endl;
                 }
             }
         } else {
@@ -649,8 +646,8 @@ bool Renderer::setupShaderBindingTable() {
         CUDA_DRIVER_CHECK(cuMemAllocAsync(&multi_hitgroup_record, total_hitgroup_size, m_deviceContext->getStream()));
         
         // Verify alignment again
-        std::cout << "  Multi-hitgroup record address: " << multi_hitgroup_record 
-                  << ", aligned: " << ((multi_hitgroup_record % OPTIX_SBT_RECORD_ALIGNMENT) == 0 ? "yes" : "no") << std::endl;
+        //std::cout << "  Multi-hitgroup record address: " << multi_hitgroup_record
+        //          << ", aligned: " << ((multi_hitgroup_record % OPTIX_SBT_RECORD_ALIGNMENT) == 0 ? "yes" : "no") << std::endl;
         
         // Copy the first hit group (cube)
         CUDA_DRIVER_CHECK(cuMemcpyHtoDAsync(
@@ -677,15 +674,15 @@ bool Renderer::setupShaderBindingTable() {
         m_sbt.hitgroupRecordCount = num_instances; // Two hit groups - one for each instance
         
         // Double-check SBT alignment requirements
-        std::cout << "Final SBT configuration:" << std::endl;
-        std::cout << "  m_sbt.raygenRecord = " << m_sbt.raygenRecord
-                  << ", aligned: " << ((m_sbt.raygenRecord % OPTIX_SBT_RECORD_ALIGNMENT) == 0 ? "yes" : "no") << std::endl;
-        std::cout << "  m_sbt.missRecordBase = " << m_sbt.missRecordBase
-                  << ", aligned: " << ((m_sbt.missRecordBase % OPTIX_SBT_RECORD_ALIGNMENT) == 0 ? "yes" : "no") << std::endl;
-        std::cout << "  m_sbt.hitgroupRecordBase = " << m_sbt.hitgroupRecordBase
-                  << ", aligned: " << ((m_sbt.hitgroupRecordBase % OPTIX_SBT_RECORD_ALIGNMENT) == 0 ? "yes" : "no") << std::endl;
-        std::cout << "  m_sbt.hitgroupRecordStrideInBytes = " << m_sbt.hitgroupRecordStrideInBytes
-                  << ", aligned: " << ((m_sbt.hitgroupRecordStrideInBytes % OPTIX_SBT_RECORD_ALIGNMENT) == 0 ? "yes" : "no") << std::endl;
+        //std::cout << "Final SBT configuration:" << std::endl;
+        //std::cout << "  m_sbt.raygenRecord = " << m_sbt.raygenRecord
+        //          << ", aligned: " << ((m_sbt.raygenRecord % OPTIX_SBT_RECORD_ALIGNMENT) == 0 ? "yes" : "no") << std::endl;
+        //std::cout << "  m_sbt.missRecordBase = " << m_sbt.missRecordBase
+        //          << ", aligned: " << ((m_sbt.missRecordBase % OPTIX_SBT_RECORD_ALIGNMENT) == 0 ? "yes" : "no") << std::endl;
+        //std::cout << "  m_sbt.hitgroupRecordBase = " << m_sbt.hitgroupRecordBase
+        //          << ", aligned: " << ((m_sbt.hitgroupRecordBase % OPTIX_SBT_RECORD_ALIGNMENT) == 0 ? "yes" : "no") << std::endl;
+        //std::cout << "  m_sbt.hitgroupRecordStrideInBytes = " << m_sbt.hitgroupRecordStrideInBytes
+        //          << ", aligned: " << ((m_sbt.hitgroupRecordStrideInBytes % OPTIX_SBT_RECORD_ALIGNMENT) == 0 ? "yes" : "no") << std::endl;
         
         // Release the device context when done
         m_deviceContext->releaseDevice();
@@ -1072,27 +1069,78 @@ bool Renderer::setupLaunchParams(int width, int height, bool rebuild) {
         } else {
             // Normal case - use the IAS
             launchParams.traversable = m_ias;
-            std::cout << "Using traversable handle: " << m_ias << std::endl;
+            //std::cout << "Using traversable handle: " << m_ias << std::endl;
         }
         
-        // Set up the camera parameters from our camera struct
+        // Set up the camera parameters directly from the precomputed values in Python
+        // No additional scaling or calculations needed!
         launchParams.camera_pos = m_camera.position;
+        launchParams.camera_u = m_camera.u;
+        launchParams.camera_v = m_camera.v;
+        launchParams.camera_w = m_camera.w;
         
         // Calculate camera basis vectors for ray generation
-        const float aspect = static_cast<float>(width) / static_cast<float>(height);
-        const float fovRadians = m_camera.fov * M_PI / 180.0f;
-        const float halfHeight = tanf(fovRadians / 2.0f);
-        const float halfWidth = aspect * halfHeight;
+        // const float aspect = m_camera.aspectRatio > 0 ? m_camera.aspectRatio :
+        //                     static_cast<float>(width) / static_cast<float>(height);
+        // const float fovRadians = m_camera.fov * M_PI / 180.0f;
+        // const float halfHeight = tanf(fovRadians / 2.0f);
+        // const float halfWidth = aspect * halfHeight;
         
-        // Calculate camera basis vectors
-        float3 w = normalize(m_camera.position - m_camera.lookAt);
-        float3 u = normalize(cross(m_camera.up, w));
-        float3 v = cross(w, u);
+        // Calculate camera basis vectors for Y+ up and Z- forward
+        // For Z- forward, calculate the forward vector first
+        // float3 forward = make_float3(
+        //     m_camera.lookAt.x - m_camera.position.x,
+        //     m_camera.lookAt.y - m_camera.position.y,
+        //     m_camera.lookAt.z - m_camera.position.z
+        // );
+        // forward = normalize(forward);
         
-        // Set the camera ray generation parameters
-        launchParams.camera_u = 2.0f * halfWidth * u;
-        launchParams.camera_v = 2.0f * halfHeight * v;
-        launchParams.camera_w = m_camera.position - halfWidth * u - halfHeight * v - w;
+        // Calculate the negated forward vector for w
+        // float3 neg_forward = make_float3(-forward.x, -forward.y, -forward.z);
+        
+        // Calculate right vector (u)
+        // float3 u = normalize(cross(m_camera.up, neg_forward));
+        
+        // Calculate up vector (v)
+        // float3 v = cross(neg_forward, u);
+        
+        // Set w to the negated forward (OptiX convention)
+        // float3 w = neg_forward;
+        
+        // Get projection offsets (for VR asymmetric frustum)
+        // These fields are set by the Python code for VR rendering
+        // float projOffsetX = m_camera.proj_offset_x;
+        // float projOffsetY = m_camera.proj_offset_y;
+        
+        // For VR rendering, we need to incorporate the asymmetric frustum
+        // The offsets are applied to the optical center to get correct perspective
+        
+        // Set the camera ray generation parameters with projection offsets
+        // launchParams.camera_u = 2.0f * halfWidth * u;
+        // launchParams.camera_v = 2.0f * halfHeight * v;
+        
+        // Incorporate projection offsets for asymmetric frustum (critical for VR)
+        // When projOffsetX/Y are non-zero, this adjusts the ray origins to account for the
+        // asymmetric projection matrix used in VR
+        //  launchParams.camera_w = m_camera.position -
+        //                        halfWidth * (1.0f + projOffsetX) * u -
+        //                        halfHeight * (1.0f + projOffsetY) * v -
+        //                        w;
+                              
+        // Print debug information occasionally
+        // static int setupCount = 0;
+        // if (++setupCount % 1000 == 0) {
+        //     std::cout << "Camera setup params:" << std::endl;
+        //     std::cout << "  Position: " << m_camera.position.x << ", "
+        //               << m_camera.position.y << ", " << m_camera.position.z << std::endl;
+        //     std::cout << "  FOV: " << m_camera.fov << ", Aspect: " << aspect << std::endl;
+        //
+        //     if (projOffsetX != 0.0f || projOffsetY != 0.0f) {
+        //         std::cout << "  Using asymmetric projection:" << std::endl;
+        //         std::cout << "    Projection offset X: " << projOffsetX << std::endl;
+        //         std::cout << "    Projection offset Y: " << projOffsetY << std::endl;
+        //     }
+        // }
         
         // Allocate or reuse output buffer for image
         size_t imageBytes = width * height * 3 * sizeof(float);

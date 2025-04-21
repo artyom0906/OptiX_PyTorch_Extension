@@ -21,22 +21,17 @@ class DeviceContext;
 
 // Camera parameters structure
 struct CameraParameters {
-    float3 position;
-    float3 lookAt;
-    float3 up;
-    float fov;
-    float aspectRatio;
-    float aperture;
-    float focusDistance;
-    
+    // Essential parameters for ray generation
+    float3 position;   // Camera position in world space
+    float3 u;          // Camera right vector (scaled for FOV)
+    float3 v;          // Camera up vector (scaled for FOV)
+    float3 w;          // Camera forward vector with projection adjustments
+
     CameraParameters()
         : position({0.0f, 0.0f, 1.0f})
-        , lookAt({0.0f, 0.0f, 0.0f})
-        , up({0.0f, 1.0f, 0.0f})
-        , fov(60.0f)
-        , aspectRatio(1.0f)
-        , aperture(0.0f)
-        , focusDistance(1.0f)
+        , u({1.0f, 0.0f, 0.0f})
+        , v({0.0f, 1.0f, 0.0f})
+        , w({0.0f, 0.0f, -1.0f})
     {}
 };
 
@@ -152,7 +147,6 @@ public:
                 throw std::runtime_error("Failed to initialize renderer");
             }
         }
-        std::cout << "Rendering..." << std::endl;
         
         // Set up launch parameters for this render
         if (!setupLaunchParams(width, height, rebuild)) {
@@ -183,6 +177,16 @@ public:
             if (!m_deviceContext->setDevice()) {
                 throw std::runtime_error("Failed to set CUDA context for OptiX launch");
             }
+            
+            // Create CUDA events for timing
+            cudaEvent_t start_render, stop_render, start_copy, stop_copy;
+            cudaEventCreate(&start_render);
+            cudaEventCreate(&stop_render);
+            cudaEventCreate(&start_copy);
+            cudaEventCreate(&stop_copy);
+            
+            // Record start event for rendering
+            cudaEventRecord(start_render, m_deviceContext->getStream());
 
             // Launch the OptiX kernel for real rendering
             OptixResult result = optixLaunch(
@@ -195,6 +199,9 @@ public:
                 height, // Launch height
                 1       // Launch depth
             );
+            
+            // Record stop event for rendering
+            cudaEventRecord(stop_render, m_deviceContext->getStream());
 
             // Release the CUDA context after launch
             m_deviceContext->releaseDevice();
@@ -229,6 +236,9 @@ public:
             // Set tensor data from CUDA pointer (stays on GPU)
             // This avoids the expensive DtoH copy by keeping the tensor on the GPU
             void* tensor_gpu_ptr = image.data_ptr();
+            
+            // Record start event for tensor copy
+            cudaEventRecord(start_copy, m_deviceContext->getStream());
 
             // Copy data between GPU buffers (much faster than GPU->CPU)
             CUDA_DRIVER_CHECK(cuMemcpyDtoD(
@@ -236,11 +246,33 @@ public:
                 m_d_output,
                 width * height * 3 * sizeof(float)
             ));
+            
+            // Record stop event for tensor copy
+            cudaEventRecord(stop_copy, m_deviceContext->getStream());
 
             // Don't free m_d_output here - it's now managed in setupLaunchParams
             // and will be reused for subsequent frames if the dimensions don't change
 
             CUDA_DRIVER_CHECK(cuStreamSynchronize(m_deviceContext->getStream()));
+            
+            // Calculate and report timing information
+            float render_time_ms = 0.0f;
+            float copy_time_ms = 0.0f;
+            cudaEventElapsedTime(&render_time_ms, start_render, stop_render);
+            cudaEventElapsedTime(&copy_time_ms, start_copy, stop_copy);
+            
+            // Store timing information in member variables for external access
+            m_last_render_time_ms = render_time_ms;
+            m_last_copy_time_ms = copy_time_ms;
+            
+            // Report timing information
+            std::cout << "Eye render time: " << render_time_ms << " ms, Copy time: " << copy_time_ms << " ms" << std::endl;
+            
+            // Cleanup events
+            cudaEventDestroy(start_render);
+            cudaEventDestroy(stop_render);
+            cudaEventDestroy(start_copy);
+            cudaEventDestroy(stop_copy);
 
             // Release the CUDA context after GPU operations
             m_deviceContext->releaseDevice();
@@ -284,6 +316,18 @@ public:
             // Copy instances (shallow copy)
             other->m_instances = m_instances;
         }
+    }
+    DeviceContext* getDeviceContext() const {
+        return m_deviceContext;
+    }
+    
+    // Getters for timing information
+    float getLastRenderTimeMs() const {
+        return m_last_render_time_ms;
+    }
+    
+    float getLastCopyTimeMs() const {
+        return m_last_copy_time_ms;
     }
     
 private:
@@ -551,6 +595,7 @@ private:
     bool setupLaunchParams(int width, int height, bool rebuild=true);
     bool loadAndCompileModules();
     bool setupShaderBindingTable();
+
     
 private:
     ResourceManager* m_resourceManager;  // Non-owning pointer to the resource manager
@@ -598,6 +643,10 @@ private:
     CUdeviceptr m_d_instances;       // Instance buffer for the IAS
     CUdeviceptr m_d_iasOutputBuffer; // IAS output buffer
     size_t m_numInstances;           // Number of instances in the scene
+    
+    // Timing information
+    float m_last_render_time_ms = 0.0f;
+    float m_last_copy_time_ms = 0.0f;
     
     // Log buffer for OptiX error reporting
     char LOG[2048];

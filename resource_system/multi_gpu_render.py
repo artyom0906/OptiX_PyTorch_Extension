@@ -425,14 +425,14 @@ def main():
     camera1 = Camera(
         torch.tensor([0.0, 1.0, 0.0], dtype=torch.float32),  # Position higher up at the origin
         torch.tensor([0.0, 0.5, -6.0], dtype=torch.float32), # Look at the cube position
-        torch.tensor([0, -1, 0], dtype=torch.float32)        # Negative Y up vector (image will be flipped)
+        torch.tensor([0, 1, 0], dtype=torch.float32)        # Negative Y up vector (image will be flipped)
     )
     
     # Create camera for second view (shifted to the left by 0.5 on X axis)
     camera2 = Camera(
         torch.tensor([-0.5, 1.0, 0.0], dtype=torch.float32), # Offset to the left of first camera
         torch.tensor([0.0, 0.5, -6.0], dtype=torch.float32), # Look at the same cube position
-        torch.tensor([0, -1, 0], dtype=torch.float32)        # Negative Y up vector (image will be flipped)
+        torch.tensor([0, 1, 0], dtype=torch.float32)        # Negative Y up vector (image will be flipped)
     )
     
     # Create player for interactive control (controls first camera)

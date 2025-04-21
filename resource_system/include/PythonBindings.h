@@ -7,6 +7,7 @@
 #include "ResourceManager.cuh"
 #include "GeometryInstance.h"
 #include "Renderer.h"
+#include "OpenVRSystem.cuh"
 
 namespace py = pybind11;
 
@@ -17,6 +18,60 @@ void bind_material_system(py::module& m);
 
 // Python bindings for the resource management system
 void initPythonBindings(py::module& m) {
+
+    py::class_<OpenVRSystem>(m, "OpenVRSystem")
+            .def(py::init<ResourceManager*, int>(),
+                 py::arg("resource_manager") = nullptr,
+                 py::arg("device_id") = 0)
+            .def("Initialize", &OpenVRSystem::Initialize)
+            .def("Shutdown", &OpenVRSystem::Shutdown)
+            .def("RenderFrame", &OpenVRSystem::RenderFrame)
+            .def("ShouldClose", &OpenVRSystem::ShouldClose)
+            .def("PollEvents", &OpenVRSystem::PollEvents)
+            .def("SetRenderers", &OpenVRSystem::SetRenderers)
+            .def("GetRecommendedRenderSize", &OpenVRSystem::GetRecommendedRenderSize)
+            .def("GetEyeTransforms", [](OpenVRSystem& self) {
+                std::vector<float> leftMat(12, 0.0f);  // 3x4 matrix
+                std::vector<float> rightMat(12, 0.0f); // 3x4 matrix
+                self.GetEyeTransforms(leftMat.data(), rightMat.data());
+                return std::make_pair(leftMat, rightMat);
+            })
+            .def("GetEyeToHeadTransforms", [](OpenVRSystem& self) {
+                std::vector<float> leftMat(12, 0.0f);  // 3x4 matrix
+                std::vector<float> rightMat(12, 0.0f); // 3x4 matrix
+                self.GetEyeToHeadTransforms(leftMat.data(), rightMat.data());
+                return std::make_pair(leftMat, rightMat);
+            })
+            .def("GetHeadPoseMatrix", [](OpenVRSystem& self) {
+                std::vector<float> headMat(12, 0.0f);  // 3x4 matrix
+                self.GetHeadPoseMatrix(headMat.data());
+                return headMat;
+            })
+            .def("GetProjectionMatrices", [](OpenVRSystem& self, float nearClip, float farClip) {
+                std::vector<float> leftMat(16, 0.0f);  // 4x4 matrix
+                std::vector<float> rightMat(16, 0.0f); // 4x4 matrix
+                self.GetProjectionMatrices(leftMat.data(), rightMat.data(), nearClip, farClip);
+                return std::make_pair(leftMat, rightMat);
+            }, py::arg("near_clip") = 0.1f, py::arg("far_clip") = 100.0f)
+            // Controller-related bindings
+            .def("IsControllerValid", &OpenVRSystem::IsControllerValid)
+            .def("GetControllerPose", [](OpenVRSystem& self, bool isLeft) {
+                std::vector<float> poseMatrix(12, 0.0f);  // 3x4 matrix
+                self.GetControllerPose(isLeft, poseMatrix.data());
+                return poseMatrix;
+            })
+            .def("IsControllerTriggerPressed", &OpenVRSystem::IsControllerTriggerPressed)
+            .def("IsControllerGripPressed", &OpenVRSystem::IsControllerGripPressed)
+            .def("GetControllerTouchpadPosition", [](OpenVRSystem& self, bool isLeft) {
+                float x = 0.0f, y = 0.0f;
+                self.GetControllerTouchpadPosition(isLeft, &x, &y);
+                return std::make_pair(x, y);
+            })
+            .def("IsControllerTouchpadPressed", &OpenVRSystem::IsControllerTouchpadPressed)
+            .def("SetControllerInteractionEnabled", &OpenVRSystem::SetControllerInteractionEnabled)
+            .def("IsControllerInteractionEnabled", &OpenVRSystem::IsControllerInteractionEnabled)
+            .def("MoveObjectWithController", &OpenVRSystem::MoveObjectWithController);
+
     // Bind material system
     bind_material_system(m);
     
@@ -184,64 +239,85 @@ void initPythonBindings(py::module& m) {
                     throw std::runtime_error("Position must be a list, tuple, or tensor with 3 elements");
                 }
             })
-        .def_property("look_at", 
+        // Camera basis vectors for direct ray generation
+        .def_property("camera_u", 
             // Getter
             [](const CameraParameters& c) -> py::tuple {
-                return py::make_tuple(c.lookAt.x, c.lookAt.y, c.lookAt.z);
+                return py::make_tuple(c.u.x, c.u.y, c.u.z);
             },
             // Setter
             [](CameraParameters& c, py::object obj) {
                 if (py::isinstance<py::list>(obj) || py::isinstance<py::tuple>(obj)) {
                     if (py::len(obj) != 3) {
-                        throw std::runtime_error("look_at must be a list/tuple with exactly 3 elements");
+                        throw std::runtime_error("camera_u must be a list/tuple with exactly 3 elements");
                     }
-                    // Access list/tuple elements with py::cast<float>(obj.attr("__getitem__")(0))
-                    c.lookAt.x = py::cast<float>(obj.attr("__getitem__")(0));
-                    c.lookAt.y = py::cast<float>(obj.attr("__getitem__")(1));
-                    c.lookAt.z = py::cast<float>(obj.attr("__getitem__")(2));
+                    c.u.x = py::cast<float>(obj.attr("__getitem__")(0));
+                    c.u.y = py::cast<float>(obj.attr("__getitem__")(1));
+                    c.u.z = py::cast<float>(obj.attr("__getitem__")(2));
                 } else if (py::isinstance<torch::Tensor>(obj)) {
                     torch::Tensor tensor = obj.cast<torch::Tensor>();
                     if (tensor.numel() != 3) {
-                        throw std::runtime_error("look_at tensor must have exactly 3 elements");
+                        throw std::runtime_error("camera_u tensor must have exactly 3 elements");
                     }
-                    c.lookAt.x = tensor[0].item<float>();
-                    c.lookAt.y = tensor[1].item<float>();
-                    c.lookAt.z = tensor[2].item<float>();
+                    c.u.x = tensor[0].item<float>();
+                    c.u.y = tensor[1].item<float>();
+                    c.u.z = tensor[2].item<float>();
                 } else {
-                    throw std::runtime_error("look_at must be a list, tuple, or tensor with 3 elements");
+                    throw std::runtime_error("camera_u must be a list, tuple, or tensor with 3 elements");
                 }
             })
-        .def_property("up", 
+        .def_property("camera_v", 
             // Getter
             [](const CameraParameters& c) -> py::tuple {
-                return py::make_tuple(c.up.x, c.up.y, c.up.z);
+                return py::make_tuple(c.v.x, c.v.y, c.v.z);
             },
             // Setter
             [](CameraParameters& c, py::object obj) {
                 if (py::isinstance<py::list>(obj) || py::isinstance<py::tuple>(obj)) {
                     if (py::len(obj) != 3) {
-                        throw std::runtime_error("up must be a list/tuple with exactly 3 elements");
+                        throw std::runtime_error("camera_v must be a list/tuple with exactly 3 elements");
                     }
-                    // Access list/tuple elements with py::cast<float>(obj.attr("__getitem__")(0))
-                    c.up.x = py::cast<float>(obj.attr("__getitem__")(0));
-                    c.up.y = py::cast<float>(obj.attr("__getitem__")(1));
-                    c.up.z = py::cast<float>(obj.attr("__getitem__")(2));
+                    c.v.x = py::cast<float>(obj.attr("__getitem__")(0));
+                    c.v.y = py::cast<float>(obj.attr("__getitem__")(1));
+                    c.v.z = py::cast<float>(obj.attr("__getitem__")(2));
                 } else if (py::isinstance<torch::Tensor>(obj)) {
                     torch::Tensor tensor = obj.cast<torch::Tensor>();
                     if (tensor.numel() != 3) {
-                        throw std::runtime_error("up tensor must have exactly 3 elements");
+                        throw std::runtime_error("camera_v tensor must have exactly 3 elements");
                     }
-                    c.up.x = tensor[0].item<float>();
-                    c.up.y = tensor[1].item<float>();
-                    c.up.z = tensor[2].item<float>();
+                    c.v.x = tensor[0].item<float>();
+                    c.v.y = tensor[1].item<float>();
+                    c.v.z = tensor[2].item<float>();
                 } else {
-                    throw std::runtime_error("up must be a list, tuple, or tensor with 3 elements");
+                    throw std::runtime_error("camera_v must be a list, tuple, or tensor with 3 elements");
                 }
             })
-        .def_readwrite("fov", &CameraParameters::fov)
-        .def_readwrite("aspect_ratio", &CameraParameters::aspectRatio)
-        .def_readwrite("aperture", &CameraParameters::aperture)
-        .def_readwrite("focus_distance", &CameraParameters::focusDistance);
+        .def_property("camera_w", 
+            // Getter
+            [](const CameraParameters& c) -> py::tuple {
+                return py::make_tuple(c.w.x, c.w.y, c.w.z);
+            },
+            // Setter
+            [](CameraParameters& c, py::object obj) {
+                if (py::isinstance<py::list>(obj) || py::isinstance<py::tuple>(obj)) {
+                    if (py::len(obj) != 3) {
+                        throw std::runtime_error("camera_w must be a list/tuple with exactly 3 elements");
+                    }
+                    c.w.x = py::cast<float>(obj.attr("__getitem__")(0));
+                    c.w.y = py::cast<float>(obj.attr("__getitem__")(1));
+                    c.w.z = py::cast<float>(obj.attr("__getitem__")(2));
+                } else if (py::isinstance<torch::Tensor>(obj)) {
+                    torch::Tensor tensor = obj.cast<torch::Tensor>();
+                    if (tensor.numel() != 3) {
+                        throw std::runtime_error("camera_w tensor must have exactly 3 elements");
+                    }
+                    c.w.x = tensor[0].item<float>();
+                    c.w.y = tensor[1].item<float>();
+                    c.w.z = tensor[2].item<float>();
+                } else {
+                    throw std::runtime_error("camera_w must be a list, tuple, or tensor with 3 elements");
+                }
+            });
     
     // Renderer settings
     py::class_<RendererSettings>(m, "RendererSettings")
@@ -280,7 +356,9 @@ void initPythonBindings(py::module& m) {
         .def("get_traversable", &Renderer::get_traversable)
         .def("debug_force_traversable", &Renderer::debug_force_traversable)
         .def("render", &Renderer::render)
-        .def("copy_scene_to", &Renderer::copySceneTo);
+        .def("copy_scene_to", &Renderer::copySceneTo)
+        .def("get_last_render_time_ms", &Renderer::getLastRenderTimeMs)
+        .def("get_last_copy_time_ms", &Renderer::getLastCopyTimeMs);
 }
 
 
