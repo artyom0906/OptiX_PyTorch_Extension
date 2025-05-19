@@ -266,7 +266,7 @@ public:
             m_last_copy_time_ms = copy_time_ms;
             
             // Report timing information
-            std::cout << "Eye render time: " << render_time_ms << " ms, Copy time: " << copy_time_ms << " ms" << std::endl;
+            //std::cout << "Eye render time: " << render_time_ms << " ms, Copy time: " << copy_time_ms << " ms" << std::endl;
             
             // Cleanup events
             cudaEventDestroy(start_render);
@@ -329,7 +329,10 @@ public:
     float getLastCopyTimeMs() const {
         return m_last_copy_time_ms;
     }
-    
+    void setSceneChanged() { m_sceneChanged = true; }
+    bool isSceneChanged() const { return m_sceneChanged; }
+    void resetSceneChanged() { m_sceneChanged = false; }
+
 private:
     // Scene building
     bool buildAccelerationStructures(){
@@ -410,7 +413,7 @@ private:
             MaterialHandle materialId = instance->getMaterialHandle();
             
             // Get the device geometry data
-            std::cout << "Configuring instance " << i << " with geometry ID: " << geometryId << std::endl;
+            //std::cout << "Configuring instance " << i << " with geometry ID: " << geometryId << std::endl;
             auto geomData = m_deviceContext->getGeometryData(geometryId);
             if (!geomData) {
                 std::cerr << "Error: Geometry data not found for instance " << i << std::endl;
@@ -424,7 +427,7 @@ private:
             }
             
             // Debug - print traversable handle
-            std::cout << "Instance " << i << " using traversable handle: " << geomData->traversable << std::endl;
+            //std::cout << "Instance " << i << " using traversable handle: " << geomData->traversable << std::endl;
             
             // Get the transform matrix from the instance
             torch::Tensor transform = instance->getTransform();
@@ -435,15 +438,15 @@ private:
             }
             
             // Print the transform matrix for debugging (Row-major format from PyTorch)
-            std::cout << "Transform BEFORE transpose for instance " << i << " (row-major):" << std::endl;
+            //std::cout << "Transform BEFORE transpose for instance " << i << " (row-major):" << std::endl;
             float* transformPtr = (float*)transform.data_ptr();
-            for (int row = 0; row < 4; row++) {
-                std::cout << "  ";
-                for (int col = 0; col < 4; col++) {
-                    std::cout << transformPtr[row * 4 + col] << " ";
-                }
-                std::cout << std::endl;
-            }
+            //for (int row = 0; row < 4; row++) {
+            //    std::cout << "  ";
+            //    for (int col = 0; col < 4; col++) {
+            //        std::cout << transformPtr[row * 4 + col] << " ";
+            //    }
+            //    std::cout << std::endl;
+            //}
             
             // NO transpose - try using row-major directly
             // Let's copy the first 3 rows of the 4x4 matrix directly
@@ -463,10 +466,10 @@ private:
             optixInstance.transform[11] = transformPtr[11]; // Row 2, Col 3 (translation Z)
             
             // Print the OptiX transform matrix (column-major) for debugging
-            std::cout << "Transform AFTER transpose for instance " << i << " (column-major):" << std::endl;
-            std::cout << "  [" << optixInstance.transform[0] << ", " << optixInstance.transform[4] << ", " << optixInstance.transform[8] << ", " << "translation X: " << optixInstance.transform[3] << "]" << std::endl;
-            std::cout << "  [" << optixInstance.transform[1] << ", " << optixInstance.transform[5] << ", " << optixInstance.transform[9] << ", " << "translation Y: " << optixInstance.transform[7] << "]" << std::endl;
-            std::cout << "  [" << optixInstance.transform[2] << ", " << optixInstance.transform[6] << ", " << optixInstance.transform[10] << ", " << "translation Z: " << optixInstance.transform[11] << "]" << std::endl;
+            //std::cout << "Transform AFTER transpose for instance " << i << " (column-major):" << std::endl;
+            //std::cout << "  [" << optixInstance.transform[0] << ", " << optixInstance.transform[4] << ", " << optixInstance.transform[8] << ", " << "translation X: " << optixInstance.transform[3] << "]" << std::endl;
+            //std::cout << "  [" << optixInstance.transform[1] << ", " << optixInstance.transform[5] << ", " << optixInstance.transform[9] << ", " << "translation Y: " << optixInstance.transform[7] << "]" << std::endl;
+            //std::cout << "  [" << optixInstance.transform[2] << ", " << optixInstance.transform[6] << ", " << optixInstance.transform[10] << ", " << "translation Z: " << optixInstance.transform[11] << "]" << std::endl;
             
             // Set instance ID for hit group selection
             optixInstance.instanceId = static_cast<unsigned int>(i);
@@ -495,21 +498,18 @@ private:
         }
         
         // Debug output for instances
-        std::cout << "Building IAS with " << optixInstances.size() << " visible instances" << std::endl;
+        //std::cout << "Building IAS with " << optixInstances.size() << " visible instances" << std::endl;
         
         // Create CUdeviceptr for the instance array - use consistent CUDA driver API
         size_t instanceBufferSize = sizeof(OptixInstance) * optixInstances.size();
         CUdeviceptr d_instances;
-        std::cout<<"ok1 " << instanceBufferSize <<std::endl;
         CUDA_DRIVER_CHECK(cuMemAllocAsync(&d_instances, instanceBufferSize, m_deviceContext->getStream()));
-        std::cout<<"ok2"<<std::endl;
         CUDA_DRIVER_CHECK(cuMemcpyHtoDAsync(
             d_instances,
             optixInstances.data(),
             instanceBufferSize
             , m_deviceContext->getStream()
         ));
-        std::cout<<"ok3"<<std::endl;
         // Set up the build input
         OptixBuildInput buildInput = {};
         buildInput.type = OPTIX_BUILD_INPUT_TYPE_INSTANCES;
@@ -540,9 +540,9 @@ private:
         CUDA_DRIVER_CHECK(cuMemAllocAsync(&d_iasOutputBuffer, bufferSizes.outputSizeInBytes, m_deviceContext->getStream()));
         
         // Debug: Check valid input
-        std::cout << "Before IAS build: Instances buffer is " << (d_instances ? "valid" : "null") << std::endl;
-        std::cout << "Before IAS build: Temp buffer is " << (d_tempBuffer ? "valid" : "null") << std::endl;
-        std::cout << "Before IAS build: Output buffer is " << (d_iasOutputBuffer ? "valid" : "null") << std::endl;
+        //std::cout << "Before IAS build: Instances buffer is " << (d_instances ? "valid" : "null") << std::endl;
+        //std::cout << "Before IAS build: Temp buffer is " << (d_tempBuffer ? "valid" : "null") << std::endl;
+        //std::cout << "Before IAS build: Output buffer is " << (d_iasOutputBuffer ? "valid" : "null") << std::endl;
         
         // Build the acceleration structure
         OptixTraversableHandle tempHandle = 0;
@@ -563,7 +563,7 @@ private:
         
         // Store the handle and debug output
         m_ias = tempHandle;
-        std::cout << "IAS build complete, traversable handle: " << m_ias << std::endl;
+        //std::cout << "IAS build complete, traversable handle: " << m_ias << std::endl;
         
         // Clean up temporary buffers - use CUDA driver API for consistency
         CUDA_DRIVER_CHECK(cuMemFreeAsync(d_tempBuffer, m_deviceContext->getStream()));
@@ -595,6 +595,8 @@ private:
     bool setupLaunchParams(int width, int height, bool rebuild=true);
     bool loadAndCompileModules();
     bool setupShaderBindingTable();
+
+
 
     
 private:

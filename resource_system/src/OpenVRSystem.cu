@@ -599,6 +599,13 @@ void OpenVRSystem::RenderEyeTexture(vr::EVREye eye) {
             rightEyeRenderTime = renderTimeMs;
             rightEyeInternalCopyTime = copyTimeMs;
         }
+
+        // --- Populate CPU tensor for Python monitor ---
+        if (eye == vr::Eye_Left) {
+            m_lastLeftEyeTensor_CPU = result.cpu().clone();
+        } else {
+            m_lastRightEyeTensor_CPU = result.cpu().clone();
+        }
         
         // Print to console only in debug mode with fixed precision (3 decimal places)
         DEBUG_PRINT(eyeName << " Eye - Render time: " << std::fixed << std::setprecision(3) << renderTimeMs 
@@ -1482,6 +1489,37 @@ void OpenVRSystem::MoveObjectWithController(optix_renderer::GeometryInstance* in
     instance->setTransform(position, rotation, scale);
 }
 
+float OpenVRSystem::GetLeftEyeRenderTimeMs() const { return leftEyeRenderTime; }
+float OpenVRSystem::GetLeftEyeInternalCopyTimeMs() const { return leftEyeInternalCopyTime; }
+float OpenVRSystem::GetLeftEyeTextureCopyTimeMs() const { return leftEyeTextureCopyTime; }
+float OpenVRSystem::GetLeftEyeToCpuCopyTimeMs() const { return leftEyeToCpuCopyTime; }
+float OpenVRSystem::GetLeftEyeFromCpuCopyTimeMs() const { return leftEyeFromCpuCopyTime; }
+
+float OpenVRSystem::GetRightEyeRenderTimeMs() const { return rightEyeRenderTime; }
+float OpenVRSystem::GetRightEyeInternalCopyTimeMs() const { return rightEyeInternalCopyTime; }
+float OpenVRSystem::GetRightEyeTextureCopyTimeMs() const { return rightEyeTextureCopyTime; }
+float OpenVRSystem::GetRightEyeToCpuCopyTimeMs() const { return rightEyeToCpuCopyTime; }
+float OpenVRSystem::GetRightEyeFromCpuCopyTimeMs() const { return rightEyeFromCpuCopyTime; }
+
+float OpenVRSystem::GetTotalToCpuCopyTimeMs() const { return totalToCpuCopyTime; }
+float OpenVRSystem::GetTotalFromCpuCopyTimeMs() const { return totalFromCpuCopyTime; }
+
+torch::Tensor OpenVRSystem::GetLastLeftEyeCPU() {
+    // Return a clone to ensure Python gets its own copy and to manage lifetime,
+    // though m_lastLeftEyeTensor_CPU is already a CPU clone.
+    // If m_lastLeftEyeTensor_CPU is not yet initialized, return an empty tensor.
+    if (m_lastLeftEyeTensor_CPU.defined()) {
+        return m_lastLeftEyeTensor_CPU.clone();
+    }
+    return torch::Tensor(); // Return empty tensor if not ready
+}
+
+torch::Tensor OpenVRSystem::GetLastRightEyeCPU() {
+    if (m_lastRightEyeTensor_CPU.defined()) {
+        return m_lastRightEyeTensor_CPU.clone();
+    }
+    return torch::Tensor();
+}
 /*
 int main(int argc, char* argv[]) {
     // Initialize CUDA

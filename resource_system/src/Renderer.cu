@@ -1026,7 +1026,7 @@ bool Renderer::setupLaunchParams(int width, int height, bool rebuild) {
         
         // Rebuild the scene if needed before rendering
         if (m_sceneChanged || m_ias == 0) {
-            std::cout << "Rebuilding acceleration structures before render..." << std::endl;
+            //std::cout << "Rebuilding acceleration structures before render..." << std::endl;
             if (!buildAccelerationStructures()) {
                 std::cerr << "ERROR: Failed to build acceleration structures before rendering" << std::endl;
                 throw std::runtime_error("Failed to build acceleration structures");

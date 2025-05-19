@@ -346,13 +346,13 @@ extern "C" __global__ void __closesthit__radiance() {
     float3 color = calculateLighting(position, normal, view_dir, albedo, metallic, roughness);
     
     // Option 2: Display only albedo (base color)
-    // float3 color = albedo;
+    //float3 color = albedo;
     
     // Option 3: Display normals mapped from [-1,1] to [0,1]
-    // float3 color = make_float3(normal.x * 0.5f + 0.5f, normal.y * 0.5f + 0.5f, normal.z * 0.5f + 0.5f);
+     //float3 color = make_float3(normal.x * 0.5f + 0.5f, normal.y * 0.5f + 0.5f, normal.z * 0.5f + 0.5f);
     
     // Option 4: Display PBR properties in RGB channels
-    // float3 color = make_float3(roughness, roughness, metallic);
+    //float3 color = make_float3(roughness, roughness, metallic);
     
     // Option 5: Mix albedo with metallic and roughness for debugging
     // color = albedo;

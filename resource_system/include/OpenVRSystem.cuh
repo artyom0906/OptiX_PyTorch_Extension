@@ -80,6 +80,9 @@ private:
     ControllerState m_leftController;               // Left controller state
     ControllerState m_rightController;              // Right controller state
     bool m_controllerInteractionEnabled;            // Whether controller interaction is enabled
+
+    torch::Tensor m_lastLeftEyeTensor_CPU;
+    torch::Tensor m_lastRightEyeTensor_CPU;
     
     // Performance logging
     std::ofstream m_perfLogFile;                    // Output file for performance metrics
@@ -117,6 +120,24 @@ public:
     ~OpenVRSystem() {
         Shutdown();
     }
+
+    torch::Tensor GetLastLeftEyeCPU();
+    torch::Tensor GetLastRightEyeCPU();
+
+    float GetLeftEyeRenderTimeMs() const;
+    float GetLeftEyeInternalCopyTimeMs() const;
+    float GetLeftEyeTextureCopyTimeMs() const;
+    float GetLeftEyeToCpuCopyTimeMs() const;
+    float GetLeftEyeFromCpuCopyTimeMs() const;
+
+    float GetRightEyeRenderTimeMs() const;
+    float GetRightEyeInternalCopyTimeMs() const;
+    float GetRightEyeTextureCopyTimeMs() const;
+    float GetRightEyeToCpuCopyTimeMs() const;
+    float GetRightEyeFromCpuCopyTimeMs() const;
+
+    float GetTotalToCpuCopyTimeMs() const;   // For overall frame debug
+    float GetTotalFromCpuCopyTimeMs() const; // For overall frame debug
 
     bool Initialize();
     void Shutdown();

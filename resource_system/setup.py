@@ -64,6 +64,7 @@ def compile_ptx():
 
         cmd = [
             nvcc_path,
+            '--compiler-bindir', '/usr/bin/gcc-14',
             '-ptx',
             '-lineinfo',     # Add line information for debugging
             '--use_fast_math',
@@ -74,6 +75,7 @@ def compile_ptx():
             f'-I{glfw_include}',    # Add GLFW include
             f'-I{os.path.join(os.getcwd(), "src")}',
             f'-I{os.path.join(os.getcwd(), "include")}',
+            '-std=c++17',
             '-arch=sm_120',  # Adjust for your GPU architecture
             '-o', output_file,
             kernel_file
@@ -99,6 +101,7 @@ extra_compile_args = {
         '-fvisibility=hidden'
     ],
     'nvcc': [
+        '--compiler-bindir', '/usr/bin/gcc-14',
         '-D_GLIBCXX_USE_CXX11_ABI=1',
         '-O3',
         '--use_fast_math',
@@ -114,6 +117,24 @@ extra_compile_args = {
         '--expt-relaxed-constexpr',
     ]
 }
+# Add this function to find Eigen include directory
+def get_eigen_include():
+    """Get Eigen include directory using pkg-config"""
+    try:
+        eigen_include = subprocess.check_output(['pkg-config', '--cflags', 'eigen3']).decode('utf-8').strip()
+        if eigen_include.startswith('-I'):
+            return eigen_include[2:]  # Remove -I prefix
+    except:
+        # Fallback paths to check
+        common_paths = [
+            '/usr/include/eigen3',
+            '/usr/local/include/eigen3',
+            '/opt/local/include/eigen3',
+        ]
+        for path in common_paths:
+            if os.path.exists(path):
+                return path
+    raise RuntimeError("Could not find Eigen3 include directory. Please install libeigen3-dev")
 
 # Find all source files
 def find_sources():
@@ -236,6 +257,7 @@ setup(
                 openvr_include,
                 glew_include,
                 glfw_include,
+                get_eigen_include(),
                 'include',
                 'src'
             ],

@@ -9,6 +9,7 @@ import time
 import math
 import numpy as np
 import torch
+from sympy import false
 
 # Add PyTorch library path to LD_LIBRARY_PATH to find libc10.so and other dependencies
 try:
@@ -31,6 +32,8 @@ except ImportError:
 
 # Import the extension
 import optix_resource_system as ors
+from pygame_monitor import PygameMonitor, get_gpu_info # Import the class and utility
+
 
 def create_cube():
     """Create a simple cube geometry with texture coordinates"""
@@ -192,10 +195,9 @@ def load_model_from_obj(resource_manager, obj_path, texture_params=None):
                 if tex_path and os.path.exists(tex_path):
                     # Determine if we should flip textures based on type
                     # Usually normal maps should not be flipped in Y
-                    flip_y = tex_type != "normalTexture"
+                    flip_y = False#tex_type not in ["normalTexture", "albedoTexture"]
                     texture_handles[tex_type] = load_texture_from_file(
                         resource_manager, tex_path, flip_y=flip_y)
-        
         return {
             "geometry": geometry_handle,
             "textures": texture_handles,
@@ -308,7 +310,7 @@ def create_scene(resource_manager):
         # Position the gun in the scene (position will be animated)
         gun_instance.set_transform(
             [-1.5, 2.0, 6.0],                         # position to the right of first cube
-            [np.radians(0), np.radians(180), np.radians(0)],  # rotated to face camera
+            [np.radians(0), np.radians(0), np.radians(0)],  # rotated to face camera
             [5, 5, 5]                          # larger scale to make it more visible
         )
         
@@ -426,57 +428,65 @@ def setup_vr_camera(
     lock_position : bool
         If True, ignore positional tracking and keep the camera at base_pos.
     """
-    import numpy as np
-    from scipy.spatial.transform import Rotation as R
-
-    cam             = ors.CameraParameters()
-    head_pose_np    = np.asarray(head_pose_matrix, dtype=float).reshape(3, 4)
-    eye_to_head_np  = np.asarray(eye_to_head_matrix, dtype=float).reshape(3, 4)
-    proj_np         = np.asarray(proj_matrix,      dtype=float).reshape(4, 4)
-
-    # ---------- position ----------------------------------------------------
-    if lock_position:
-        position = np.array(base_pos, dtype=np.float64)
-    else:
-        eye_offset = eye_to_head_np[:, 3]
-        hp4        = np.eye(4, dtype=np.float64)
-        hp4[:3, :4] = head_pose_np
-        position   = (hp4 @ np.append(eye_offset, 1.0))[:3]
-        position[2] *= -1
-
-    # ---------- orientation (quaternion) -----------------------------------
-    rot_q = R.from_matrix(head_pose_np[:, :3])
-    yaw, pitch, roll = rot_q.as_euler("xyz", degrees=False)
-
-    # Uncomment any axis you want to invert
-    pitch = -pitch      # nodding
-    yaw   = -yaw        # turning
-    # roll  = -roll       # tilting
-
-    rot_q   = R.from_euler("xyz", [yaw, pitch, roll])
-    right   = rot_q.apply([1, 0, 0])
-    up      = rot_q.apply([0, 1, 0])
-    forward = rot_q.apply([0, 0, -1])
-
-    # ---------- projection parameters --------------------------------------
-    tan_half_w = 1.0 / abs(proj_np[0, 0])
-    tan_half_h = 1.0 / abs(proj_np[1, 1])
-    off_x      = proj_np[0, 2]
-    off_y      = proj_np[1, 2]
-
-    camera_u = right   #* (2.0 * tan_half_w)
-    camera_v = up      #* (2.0 * tan_half_h)
-    camera_w = (position
-                - tan_half_w * (off_x + 1.0) * right
-                - tan_half_h * (off_y + 1.0) * up
-                - forward)
-
-    # ---------- write to struct --------------------------------------------
-    cam.position  = position.tolist()
-    cam.camera_u  = camera_u.tolist()
-    cam.camera_v  = camera_v.tolist()
-    cam.camera_w  = camera_w.tolist()
-    return cam
+    #import numpy as np
+    #from scipy.spatial.transform import Rotation as R
+#
+    #cam             = ors.CameraParameters()
+    #head_pose_np    = np.asarray(head_pose_matrix, dtype=float).reshape(3, 4)
+    #eye_to_head_np  = np.asarray(eye_to_head_matrix, dtype=float).reshape(3, 4)
+    #proj_np         = np.asarray(proj_matrix,      dtype=float).reshape(4, 4)
+#
+    ## ---------- position ----------------------------------------------------
+    #if lock_position:
+    #    position = np.array(base_pos, dtype=np.float64)
+    #else:
+    #    eye_offset = eye_to_head_np[:, 3]
+    #    hp4        = np.eye(4, dtype=np.float64)
+    #    hp4[:3, :4] = head_pose_np
+    #    position   = (hp4 @ np.append(eye_offset, 1.0))[:3]
+    #    position[2] *= -1
+#
+    ## ---------- orientation (quaternion) -----------------------------------
+    #rot_q = R.from_matrix(head_pose_np[:, :3])
+    #yaw, pitch, roll = rot_q.as_euler("xyz", degrees=False)
+#
+    ## Uncomment any axis you want to invert
+    #pitch = -pitch      # nodding
+    #yaw   = -yaw        # turning
+    #"# roll  = -roll       # tilting
+#
+    #rot_q   = R.from_euler("xyz", [yaw, pitch, roll])
+    #right   = rot_q.apply([1, 0, 0])
+    #up      = rot_q.apply([0, 1, 0])
+    #forward = rot_q.apply([0, 0, -1])
+#
+    ## ---------- projection parameters --------------------------------------
+    #tan_half_w = 1.0 / abs(proj_np[0, 0])
+    #tan_half_h = 1.0 / abs(proj_np[1, 1])
+    #off_x      = proj_np[0, 2]
+    #off_y      = proj_np[1, 2]
+#
+    #camera_u = right   #* (2.0 * tan_half_w)
+    #camera_v = up      #* (2.0 * tan_half_h)
+    #camera_w = (position
+    #            - tan_half_w * (off_x + 1.0) * right
+    #            - tan_half_h * (off_y + 1.0) * up
+    #            - forward)
+#
+    ## ---------- write to struct --------------------------------------------
+    #cam.position  = position.tolist()
+    #cam.camera_u  = camera_u.tolist()
+    #cam.camera_v  = camera_v.tolist()
+    #cam.camera_w  = camera_w.tolist()
+    #return cam
+    params = ors.CameraSetupParams()
+    params.eye_matrix = eye_matrix
+    params.eye_to_head_matrix = eye_to_head_matrix
+    params.head_pose_matrix = head_pose_matrix
+    params.proj_matrix = proj_matrix
+    params.base_pos = base_pos
+    params.lock_position = lock_position
+    return ors.setup_vr_camera(params)
 
 def main():
     import argparse
@@ -486,6 +496,9 @@ def main():
     parser.add_argument('--lock-position', action='store_true', help='Lock camera position, only allow rotation')
     parser.add_argument('--position', type=float, nargs=3, default=[0.0, 1.7, 0.0], 
                         help='Fixed camera position (x, y, z) when locked, default: 0.0 1.7 0.0')
+    parser.add_argument('--monitor_width', type=int, default=1920, help="Width of the Pygame monitor window")
+    parser.add_argument('--monitor_height', type=int, default=1080, help="Height of the Pygame monitor window")
+
     args = parser.parse_args()
     
     print("=" * 80)
@@ -518,6 +531,7 @@ def main():
         left_renderer.add_instance(instance)
         right_renderer.add_instance(instance)
 
+    monitor_instance = None
     try:
         # Initialize VR
         if not vr_system.Initialize():
@@ -530,17 +544,34 @@ def main():
             
         # Set renderers to VR system
         vr_system.SetRenderers(left_renderer, right_renderer)
-        
+
+        monitor_instance = PygameMonitor(
+            vr_render_width_per_eye=width,
+            vr_render_height_per_eye=height,
+            monitor_window_width=args.monitor_width,
+            monitor_window_height=args.monitor_height
+        )
+        monitor_instance.start()
         # Base position for the head
         head_pos = args.position
-        
+        last_fps_calc_time = time.perf_counter()
+        frames_for_fps_calc = 0
+        main_vr_fps = 0.0
+
+        last_gpu_info_check_time = 0.0
+        gpu_info_check_interval = 1.0
+        current_system_gpu_stats = []
         print("- Press ESC in the desktop window to exit")
         
         # Main loop
         frame_count = 0
         print("Starting VR rendering loop...")
+
+        loop_start_time = time.perf_counter()
         
-        while not vr_system.ShouldClose():
+        while monitor_instance.is_running and not vr_system.ShouldClose():
+            loop_start_time = time.perf_counter()
+
             # Get all raw matrices from OpenVR
             left_eye_matrix, right_eye_matrix = vr_system.GetEyeTransforms()
             left_eye_to_head, right_eye_to_head = vr_system.GetEyeToHeadTransforms()
@@ -591,7 +622,9 @@ def main():
                 
                 # Apply the updated transform
                 animated_gun_instance.set_transform(position, rotation, current_scale)
-                
+                right_renderer.set_scene_changed()
+                left_renderer.set_scene_changed()
+
             # Update camera settings using all available matrix information
             left_camera = setup_vr_camera(
                 left_eye_matrix, 
@@ -612,9 +645,9 @@ def main():
             )
             
             # Print head position occasionally
-            if frame_count % 300 == 0:
-                head_matrix = np.array(head_pose_matrix).reshape(3, 4)
-                print(f"Head position: {head_matrix[:, 3]}")
+            #if frame_count % 300 == 0:
+            #    head_matrix = np.array(head_pose_matrix).reshape(3, 4)
+            #    print(f"Head position: {head_matrix[:, 3]}")
             
             # Make sure the camera positions are properly set
             left_renderer.set_camera(left_camera)
@@ -622,7 +655,47 @@ def main():
             
             # Render frame to headset
             vr_system.RenderFrame()
-            
+
+
+            # --- Gather Data for Pygame Monitor ---
+            data_for_monitor = {}
+            data_for_monitor["left_eye_cpu_tensor"] = vr_system.get_last_left_eye_cpu()
+            data_for_monitor["right_eye_cpu_tensor"] = vr_system.get_last_right_eye_cpu()
+
+            data_for_monitor["left_render_ms"] = vr_system.get_left_eye_render_time_ms()
+            data_for_monitor["left_optix_copy_ms"] = vr_system.get_left_eye_internal_copy_time_ms()
+            data_for_monitor["left_texture_copy_ms"] = vr_system.get_left_eye_texture_copy_time_ms()
+            data_for_monitor["left_gpu_to_cpu_ms"] = vr_system.get_left_eye_to_cpu_copy_time_ms()
+            data_for_monitor["left_cpu_to_gpu_ms"] = vr_system.get_left_eye_from_cpu_copy_time_ms()
+
+            data_for_monitor["right_render_ms"] = vr_system.get_right_eye_render_time_ms()
+            data_for_monitor["right_optix_copy_ms"] = vr_system.get_right_eye_internal_copy_time_ms()
+            data_for_monitor["right_texture_copy_ms"] = vr_system.get_right_eye_texture_copy_time_ms()
+            data_for_monitor["right_gpu_to_cpu_ms"] = vr_system.get_right_eye_to_cpu_copy_time_ms()
+            data_for_monitor["right_cpu_to_gpu_ms"] = vr_system.get_right_eye_from_cpu_copy_time_ms()
+
+            data_for_monitor["total_to_cpu_ms"] = vr_system.get_total_to_cpu_copy_time_ms()
+            data_for_monitor["total_from_cpu_ms"] = vr_system.get_total_from_cpu_copy_time_ms()
+
+            frames_for_fps_calc += 1
+            current_time_fps = time.perf_counter()
+            if current_time_fps - last_fps_calc_time >= 1.0:
+                main_vr_fps = frames_for_fps_calc / (current_time_fps - last_fps_calc_time)
+                frames_for_fps_calc = 0
+                last_fps_calc_time = current_time_fps
+            data_for_monitor["vr_fps"] = main_vr_fps
+
+            if current_time_fps - last_gpu_info_check_time > gpu_info_check_interval:
+                current_system_gpu_stats = get_gpu_info()
+                last_gpu_info_check_time = current_time_fps
+            data_for_monitor["system_gpu_stats"] = current_system_gpu_stats
+
+            loop_end_time = time.perf_counter()
+            data_for_monitor["main_loop_time_ms"] = (loop_end_time - loop_start_time) * 1000.0
+
+            monitor_instance.update_data(data_for_monitor)
+
+
             # Process events
             vr_system.PollEvents()
             
@@ -632,7 +705,7 @@ def main():
                 print(f"Rendered {frame_count} frames")
             
             # Sleep to limit CPU usage
-            time.sleep(1/90)  # Target 90 FPS
+            #time.sleep(1/90)  # Target 90 FPS
         
     except KeyboardInterrupt:
         print("\nInterrupted by user")

@@ -4,10 +4,11 @@
 #include <pybind11/stl.h>
 #include <torch/extension.h>
 
-#include "ResourceManager.cuh"
 #include "GeometryInstance.h"
-#include "Renderer.h"
 #include "OpenVRSystem.cuh"
+#include "Renderer.h"
+#include "ResourceManager.cuh"
+#include "VRCamera.h"
 
 namespace py = pybind11;
 
@@ -70,8 +71,39 @@ void initPythonBindings(py::module& m) {
             .def("IsControllerTouchpadPressed", &OpenVRSystem::IsControllerTouchpadPressed)
             .def("SetControllerInteractionEnabled", &OpenVRSystem::SetControllerInteractionEnabled)
             .def("IsControllerInteractionEnabled", &OpenVRSystem::IsControllerInteractionEnabled)
-            .def("MoveObjectWithController", &OpenVRSystem::MoveObjectWithController);
+            .def("MoveObjectWithController", &OpenVRSystem::MoveObjectWithController)
 
+            .def("get_last_left_eye_cpu", &OpenVRSystem::GetLastLeftEyeCPU)
+            .def("get_last_right_eye_cpu", &OpenVRSystem::GetLastRightEyeCPU)
+
+            .def("get_left_eye_render_time_ms", &OpenVRSystem::GetLeftEyeRenderTimeMs)
+            .def("get_left_eye_internal_copy_time_ms", &OpenVRSystem::GetLeftEyeInternalCopyTimeMs)
+            .def("get_left_eye_texture_copy_time_ms", &OpenVRSystem::GetLeftEyeTextureCopyTimeMs)
+            .def("get_left_eye_to_cpu_copy_time_ms", &OpenVRSystem::GetLeftEyeToCpuCopyTimeMs)
+            .def("get_left_eye_from_cpu_copy_time_ms", &OpenVRSystem::GetLeftEyeFromCpuCopyTimeMs)
+
+            .def("get_right_eye_render_time_ms", &OpenVRSystem::GetRightEyeRenderTimeMs)
+            .def("get_right_eye_internal_copy_time_ms", &OpenVRSystem::GetRightEyeInternalCopyTimeMs)
+            .def("get_right_eye_texture_copy_time_ms", &OpenVRSystem::GetRightEyeTextureCopyTimeMs)
+            .def("get_right_eye_to_cpu_copy_time_ms", &OpenVRSystem::GetRightEyeToCpuCopyTimeMs)
+            .def("get_right_eye_from_cpu_copy_time_ms", &OpenVRSystem::GetRightEyeFromCpuCopyTimeMs)
+
+            .def("get_total_to_cpu_copy_time_ms", &OpenVRSystem::GetTotalToCpuCopyTimeMs)
+            .def("get_total_from_cpu_copy_time_ms", &OpenVRSystem::GetTotalFromCpuCopyTimeMs);
+
+
+
+    // Add near the other bindings
+    py::class_<ors::CameraSetupParams>(m, "CameraSetupParams")
+        .def(py::init<>())
+        .def_readwrite("eye_matrix", &ors::CameraSetupParams::eyeMatrix)
+        .def_readwrite("eye_to_head_matrix", &ors::CameraSetupParams::eyeToHeadMatrix)
+        .def_readwrite("head_pose_matrix", &ors::CameraSetupParams::headPoseMatrix)
+        .def_readwrite("proj_matrix", &ors::CameraSetupParams::projMatrix)
+        .def_readwrite("base_pos", &ors::CameraSetupParams::basePos)
+        .def_readwrite("lock_position", &ors::CameraSetupParams::lockPosition);
+
+    m.def("setup_vr_camera", &ors::setupVRCamera, "Setup VR camera parameters");
     // Bind material system
     bind_material_system(m);
     
@@ -358,7 +390,12 @@ void initPythonBindings(py::module& m) {
         .def("render", &Renderer::render)
         .def("copy_scene_to", &Renderer::copySceneTo)
         .def("get_last_render_time_ms", &Renderer::getLastRenderTimeMs)
-        .def("get_last_copy_time_ms", &Renderer::getLastCopyTimeMs);
+        .def("get_last_copy_time_ms", &Renderer::getLastCopyTimeMs)
+            // Inside the py::class_<Renderer> definition in PythonBindings.h
+        .def("set_scene_changed", &Renderer::setSceneChanged)
+        .def("is_scene_changed", &Renderer::isSceneChanged)
+        .def("reset_scene_changed", &Renderer::resetSceneChanged);
+
 }
 
 

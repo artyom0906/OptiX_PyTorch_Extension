@@ -499,20 +499,107 @@ def main():
         #camera2.lookat = camera1.lookat.clone()  # Look at the same point
         
         # Set up camera parameters for both renderers
+        #camera_params1 = ors.CameraParameters()
+        #camera_params1.position = camera1.position.tolist()
+        #camera_params1.look_at = camera1.lookat.tolist()
+        #camera_params1.up = camera1.up.tolist()
+        #camera_params1.fov = 90.0  # Much wider field of view to be sure we see the cube
+        #camera_params1.aspect_ratio = width / height
+        #
+        #camera_params2 = ors.CameraParameters()
+        #camera_params2.position = camera2.position.tolist()
+        #camera_params2.look_at = camera2.lookat.tolist()
+        #camera_params2.up = camera2.up.tolist()
+        #camera_params2.fov = 90.0  # Much wider field of view to be sure we see the cube
+        #camera_params2.aspect_ratio = width / height
+
+        # Get camera properties from your Python Camera object
+        py_camera_position = camera1.position.numpy() # Ensure it's a NumPy array
+        py_camera_lookat = camera1.lookat.numpy()
+        py_camera_up = camera1.up.numpy()
+        fov_degrees = 90.0
+        aspect_ratio = float(width) / height
+
+        # Calculate camera basis vectors (u, v, w)
+        # This logic is similar to how you might set up a view matrix
+
+        # W (forward, but OptiX uses view direction from eye, so often -forward)
+        # OptiX shaders often expect W to be the vector from eye to the center of the view plane's bottom-left pixel.
+        # For simplicity, let's derive U,V,W in world space for direct raygen first.
+
+        # Z-axis of camera (forward direction)
+        z_axis = py_camera_lookat - py_camera_position
+        z_axis = z_axis / np.linalg.norm(z_axis)
+
+        # X-axis of camera (right vector)
+        x_axis = np.cross(py_camera_up, z_axis) # Note: OpenVR/OpenGL might use (forward x up)
+        x_axis = x_axis / np.linalg.norm(x_axis)
+
+        # Y-axis of camera (up vector)
+        y_axis = np.cross(z_axis, x_axis)
+        # y_axis = py_camera_up / np.linalg.norm(py_camera_up) # Or re-normalize the provided up
+
+        # Calculate w_vec (direction to center of view plane, not just forward)
+        # This depends on your ray generation shader. The current Renderer.cu
+        # expects camera_pos, camera_u, camera_v, camera_w.
+        # camera_w is typically: eye - (u_scale * u) - (v_scale * v) - forward_vec
+        # For a simple perspective projection:
+        fov_rad = math.radians(fov_degrees)
+        h = math.tan(fov_rad / 2.0)
+
+        # These are scaled basis vectors for the view plane
+        # The raygen shader then uses: ray_dir = normalize(params.camera_u * screen_x + params.camera_v * screen_y + params.camera_w)
+        # Where params.camera_w is effectively the direction to the center of the near plane.
+        # The 'w' in CameraParameters is more like the direction to the bottom-left of the view plane center.
+        # Let's follow the Renderer.cu LaunchParams expectations where:
+        # params.camera_w is the vector to the center of the image plane from the origin of the camera's coordinate system.
+        # And camera_u, camera_v are scaled basis vectors.
+
+        # Let's assume the C++ CameraParameters u,v,w are the basis vectors scaled by FOV/aspect.
+        # This needs to match exactly how `LaunchParams` in Renderer.cu uses them.
+        # From Renderer.cu:
+        # launchParams.camera_u = m_camera.u;
+        # launchParams.camera_v = m_camera.v;
+        # launchParams.camera_w = m_camera.w; // This 'w' is the forward vector for the view.
+        # The actual ray direction in shader_minimal.cu:
+        # dir = params.camera_u * screen_pos.x + params.camera_v * screen_pos.y + params.camera_w
+
+        # So camera_w should be the view direction (normalized forward)
+        # And camera_u, camera_v should be scaled versions of the right and up vectors.
+
+        u_vector = x_axis * (aspect_ratio * h) # Scaled right vector
+        v_vector = y_axis * h                  # Scaled up vector
+        w_vector = z_axis                      # Forward vector (view direction)
+
+        # For camera 1
         camera_params1 = ors.CameraParameters()
-        camera_params1.position = camera1.position.tolist()
-        camera_params1.look_at = camera1.lookat.tolist()
-        camera_params1.up = camera1.up.tolist()
-        camera_params1.fov = 90.0  # Much wider field of view to be sure we see the cube
-        camera_params1.aspect_ratio = width / height
-        
+        camera_params1.position = py_camera_position.tolist()
+        camera_params1.camera_u = u_vector.tolist()
+        camera_params1.camera_v = v_vector.tolist()
+        camera_params1.camera_w = w_vector.tolist()
+
+        # For camera 2 (you'll need to recalculate u_vector, v_vector, w_vector for camera2 as well)
+        py_camera_position2 = camera2.position.numpy()
+        py_camera_lookat2 = camera2.lookat.numpy()
+        py_camera_up2 = camera2.up.numpy()
+
+        z_axis2 = py_camera_lookat2 - py_camera_position2
+        z_axis2 = z_axis2 / np.linalg.norm(z_axis2)
+        x_axis2 = np.cross(py_camera_up2, z_axis2)
+        x_axis2 = x_axis2 / np.linalg.norm(x_axis2)
+        y_axis2 = np.cross(z_axis2, x_axis2)
+
+        u_vector2 = x_axis2 * (aspect_ratio * h)
+        v_vector2 = y_axis2 * h
+        w_vector2 = z_axis2
+
         camera_params2 = ors.CameraParameters()
-        camera_params2.position = camera2.position.tolist()
-        camera_params2.look_at = camera2.lookat.tolist()
-        camera_params2.up = camera2.up.tolist()
-        camera_params2.fov = 90.0  # Much wider field of view to be sure we see the cube
-        camera_params2.aspect_ratio = width / height
-        
+        camera_params2.position = py_camera_position2.tolist()
+        camera_params2.camera_u = u_vector2.tolist()
+        camera_params2.camera_v = v_vector2.tolist()
+        camera_params2.camera_w = w_vector2.tolist()
+
+
         # Set cameras for renderers
         if len(renderers) > 0:
             renderers[0].set_camera(camera_params1)
